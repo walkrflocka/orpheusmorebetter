@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 '''
-Installer script for orpheusbetter.
+Installer script for orpheusmorebetter.
 '''
 
 from setuptools import setup
@@ -16,17 +16,17 @@ else:
     raise RuntimeError("Unable to find version string in %s." % (VERSIONFILE,))
 
 setup(
-    name = "orpheusbetter",
+    name = "orpheusmorebetter",
     description = "Automatically transcode and upload FLACs on orpheus.network.",
     version = verstr,
-    url = 'https://github.com/ApexWeed/orpheusbetter-crawler',
+    url = 'https://https://github.com/walkrflocka/orpheusmorebetter',
     py_modules = [
         '_version',
         'tagging',
         'transcode',
         'whatapi'
     ],
-    scripts = ['orpheusbetter'],
+    scripts = ['orpheusmorebetter'],
     install_requires = [
         'mutagen>=1.20',
         'mechanize==0.2.5',
