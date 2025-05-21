@@ -19,15 +19,18 @@ To install all required Python packages, `cd` into the `orpheusmorebetter` direc
 
 If you are on a seedbox or a system without access to superuser, try the following:
 
-
-    $ pip install --user -r requirements.txt
+```bash
+pip install --user -r requirements.txt
+```
 
 In addition to these Python packages, you will need to install several external dependencies: `mktorrent` 1.1+, `flac`, `lame`, and `sox`. The method of installing these programs varies depending on your operating system.
 
-    # # For Ubuntu-based systems
-    # apt install mktorrent flac lame sox
-    # # For Arch-based systems
-    # sudo pacman -S mktorrent flac lame sox
+```bash
+# For Ubuntu-based systems
+apt install mktorrent flac lame sox
+# For Arch-based systems
+sudo pacman -S mktorrent flac lame sox
+```
 
 If you are on a seedbox and you lack the privilages to install packages,
 you could contact your provider to have these packages installed.
@@ -43,19 +46,21 @@ Configuration
 
 Open the file `~/.orpheusmorebetter/config` in a text editor. You will see something like this:
 
-    [whatcd]
-    username =
-    password =
-    data_dir =
-    output_dir =
-    torrent_dir =
-    formats = flac, v0, 320, v2
-    media = sacd, soundboard, web, dvd, cd, dat, vinyl, blu-ray
-    24bit_behaviour = 0
-    tracker = https://home.opsfet.ch/
-    api = https://orpheus.network
-    mode = both
-    source = OPS
+```
+[whatcd]
+username =
+password =
+data_dir =
+output_dir =
+torrent_dir =
+formats = flac, v0, 320, v2
+media = sacd, soundboard, web, dvd, cd, dat, vinyl, blu-ray
+24bit_behaviour = 0
+tracker = https://home.opsfet.ch/
+api = https://orpheus.network
+mode = both
+source = OPS
+```
 
 If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is the exact same config format - thus they are all compatible.
 
@@ -100,24 +105,26 @@ a prompt will appear. The default is '0' which ignores these occurrences.
 
 You should end up with something like this:
 
-    [whatcd]
-    username = RequestBunny
-    password = clapton
-    data_dir = /srv/downloads
-    output_dir =
-    torrent_dir = /srv/torrents
-    formats = flac, v0, 320
-    media = cd, vinyl, web
-    24bit_behaviour = 0
-    tracker = https://home.opsfet.ch/
-    api = https://orpheus.network
-    mode = both
-    source = OPS
+```
+[whatcd]
+username = RequestBunny
+password = clapton
+data_dir = /srv/downloads
+output_dir =
+torrent_dir = /srv/torrents
+formats = flac, v0, 320
+media = cd, vinyl, web
+24bit_behaviour = 0
+tracker = https://home.opsfet.ch/
+api = https://orpheus.network
+mode = both
+source = OPS
+```
 
 Usage
 -----
 
-```
+```bash
 usage: orpheusmorebetter [-h] [-s] [-j THREADS] [--config CONFIG] [--cache CACHE]
                      [-U] [-E] [--version] [-m MODE] [-S] [-t TOTP]
                      [-o SOURCE]
