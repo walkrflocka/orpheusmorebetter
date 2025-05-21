@@ -14,8 +14,9 @@ Installation
 
 To install all required Python packages, `cd` into the `orpheusmorebetter` directory and execute:
 
-    $ pip install -r requirements.txt
-
+```bash
+pip install -r requirements.txt
+```
 
 If you are on a seedbox or a system without access to superuser, try the following:
 
