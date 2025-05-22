@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
-# make me a conjob!
+#!/usr/bin/env python
 
 import os
 import json
 import argparse
-import ConfigParser
 import sys
 
 lockfile = os.path.expanduser('~/.orpheusmorebetter/parse.lock')
@@ -26,10 +24,12 @@ def main():
 def parse_stuff(cache_file):
     open(lockfile, 'w').close()
     try:
-        cache = json.load(open(cache_file))
+        with open(cache_file, 'r') as f:
+            cache = json.load(f)
     except:
         cache = []
-        json.dump(cache, open(cache_file, 'wb'))
+        with open(cache_file, 'w') as f:
+            json.dump(cache, f)
 
     permalinks = []
     cache_new = []
@@ -43,7 +43,10 @@ def parse_stuff(cache_file):
         return False
 
     cmdline = "python3 orpheusmorebetter.py {0}".format(' '.join(permalinks))
-    json.dump(cache_new, open(cache_file, 'wb'))
+
+    with open(cache_file, 'w') as f:
+        json.dump(cache_new, f)
+
     print("Executing... {0}".format(cmdline))
     os.system(cmdline)
     os.remove(lockfile)

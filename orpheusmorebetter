@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+
 import configparser
 import argparse
+
 import pickle
+
 import os
 import shutil
 import sys
@@ -43,11 +46,10 @@ def create_description(torrent, flac_dir, format, permalink):
 
 def formats_needed(group, torrent, supported_formats):
     if '' in supported_formats: supported_formats.remove('')
-    same_group = lambda t: t['media'] == torrent['media'] and\
-                           t['remasterYear'] == torrent['remasterYear'] and\
-                           t['remasterTitle'] == torrent['remasterTitle'] and\
-                           t['remasterRecordLabel'] == torrent['remasterRecordLabel'] and\
-                           t['remasterCatalogueNumber'] == torrent['remasterCatalogueNumber']
+
+    def same_group(t):
+        fields = ['media', 'remasterYear', 'remasterTitle', 'remasterRecordLabel', 'remasterCatalogueNumber']
+        return all([t[f] == torrent[f] for f in fields])
 
     others = filter(same_group, group['torrents'])
     current_formats = set((t['format'], t['encoding']) for t in others)
@@ -76,13 +78,17 @@ def main():
 
     args = parser.parse_args()
 
+    # Work with config files
     config = configparser.ConfigParser(interpolation=None)
     try:
+        # try to read the config file
         open(args.config)
         config.read(args.config)
     except:
+        # if it doesn't exist, create a new one
         if not os.path.exists(os.path.dirname(args.config)):
             os.makedirs(os.path.dirname(args.config))
+        # fill in the config file with default values
         config.add_section('orpheus')
         config.set('orpheus', 'username', '')
         config.set('orpheus', 'password', '')
@@ -97,19 +103,17 @@ def main():
         config.set('orpheus', 'api', 'https://orpheus.network')
         config.set('orpheus', 'source', 'OPS')
         config.write(open(args.config, 'w'))
-        print("Please edit the configuration file: {0}".format(args.config))
+        print("Please populate the necessary fields in the configuration file: {0}".format(args.config))
         sys.exit(2)
     finally:
-        username = config.get('orpheus', 'username')
-        password = config.get('orpheus', 'password')
-        do_24_bit = config.get('orpheus', '24bit_behaviour')
-        data_dir = [os.path.expanduser(d) for d in config.get('orpheus', 'data_dir').split(';')]
+        username: str = config.get('orpheus', 'username')
+        password: str = config.get('orpheus', 'password')
+        do_24_bit: str = config.get('orpheus', '24bit_behaviour')
+        data_dir: list[str] = [os.path.expanduser(d) for d in config.get('orpheus', 'data_dir').split(';')]
         try:
-            output_dir = os.path.expanduser(config.get('orpheus', 'output_dir'))
+            output_dir: str = os.path.expanduser(config.get('orpheus', 'output_dir'))
         except configparser.NoOptionError:
-            output_dir = None
-        if not output_dir:
-            output_dir = data_dir[0]
+            output_dir: str = data_dir[0]
         torrent_dir = os.path.expanduser(config.get('orpheus', 'torrent_dir'))
         supported_formats = [format.strip().upper() for format in config.get('orpheus', 'formats').split(',')]
 
@@ -172,21 +176,22 @@ def main():
     api = whatapi.WhatAPI(username, password, endpoint, args.totp)
 
     try:
-        seen = pickle.load(open(args.cache, 'rb'))
-    except:
-        seen = set()
-        pickle.dump(seen, open(args.cache, 'wb'))
+        with open(args.cache, 'rb') as f:
+            seen: set = pickle.load(f)
+    except OSError:
+        # If the cache file doesn't exist, create a new one
+        print("Cache file not found, creating a new one.")
+        with open(args.cache, 'wb') as f:
+            seen: set = set()
+            pickle.dump(set(), f)
 
     if args.skip:
-        skip = [int(query['torrentid']) for query in\
-                [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
+        skip = [int(query['torrentid']) for query in [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
         for id in skip:
             print("Skipping torrent {0}".format(str(id)))
             seen.add(str(id))
         pickle.dump(seen, open(args.cache, 'wb'))
         return
-
-
 
     print("Searching for transcode candidates...")
     if args.release_urls:
@@ -221,15 +226,19 @@ def main():
         print(release)
         print(releaseurl)
 
-        if not torrent['filePath']:
+        if torrent['filePath'] is None:
             for d in data_dir:
                 flac_file = os.path.join(d, whatapi.unescape(torrent['fileList']).split('{{{')[0])
+
                 if not os.path.exists(flac_file):
                     continue
+
                 flac_dir = os.path.join(d, "{0} ({1}) [FLAC]".format(
                     whatapi.unescape(group['group']['name']), group['group']['year']))
+
                 if not os.path.exists(flac_dir):
                     os.makedirs(flac_dir)
+
                 shutil.copy(flac_file, flac_dir)
                 break
 
@@ -291,15 +300,9 @@ def main():
             if os.path.exists(flac_dir):
                 print("Adding format {0}...".format(format), end=" ")
                 tmpdir = tempfile.mkdtemp()
-                try:
-                    local_output_dir = config.get('orpheus', 'output_dir_{}'.format(format))
-                except:
-                    local_output_dir = output_dir
 
-                try:
-                    local_torrent_dir = config.get('orpheus', 'torrent_dir_{}'.format(format))
-                except:
-                    local_torrent_dir = torrent_dir
+                local_output_dir: str = config.get('orpheus', 'output_dir_{}'.format(format), fallback=output_dir)
+                local_torrent_dir: str = config.get('orpheus', 'torrent_dir_{}'.format(format), fallback=torrent_dir)
 
                 try:
                     transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, max_threads=args.threads)

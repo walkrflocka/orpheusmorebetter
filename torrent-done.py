@@ -8,11 +8,14 @@ def main():
     torrent_hash = argv[5].upper()
 
     # find the hash and set done = true
-    cache = json.load(open('~/.orpheusmorebetter/cache-crawl'))
+    with open('~/.orpheusmorebetter/cache-crawl', 'r') as f:
+        cache = json.load(f)
+
     for torrent in cache:
         if torrent['hash'] == torrent_hash:
             torrent['done'] = True
-            json.dump(cache, open('~/.orpheusmorebetter/cache-crawl', 'wb'))
+            with open('~/.orpheusmorebetter/cache-crawl', 'w') as f:
+                json.dump(cache, f)
             exit(0)
 
     exit(1)

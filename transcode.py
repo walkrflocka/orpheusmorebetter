@@ -2,13 +2,14 @@
 import errno
 import multiprocessing
 import os
-import pipes
+import os.path as path
 import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
+from typing import Any, Callable
 
 import mutagen.flac
 
@@ -29,7 +30,7 @@ class TranscodeDownmixException(TranscodeException):
 
 class UnknownSampleRateException(TranscodeException):
     pass
-    
+
 # In most Unix shells, pipelines only report the return code of the
 # last process. We need to know if any process in the transcode
 # pipeline fails, not just the last one.
@@ -50,7 +51,7 @@ def run_pipeline(cmds):
     try:
         for cmd in cmds:
             proc = subprocess.Popen(shlex.split(cmd), stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if last_proc:
+            if last_proc is not None and last_proc.stdout is not None:
                 # Ensure last_proc receives SIGPIPE if proc exits first
                 last_proc.stdout.close()
             procs.append(proc)
@@ -70,7 +71,7 @@ def run_pipeline(cmds):
     results.append((last_proc.returncode, last_stderr))
     return results
 
-def locate(root, match_function, ignore_dotfiles=True):
+def locate(root, match_function: Callable[[str], Any], ignore_dotfiles=True):
     '''
     Yields all filenames within the root directory for which match_function returns True.
     '''
@@ -121,7 +122,7 @@ def resample_rate(flac_dir):
     else:
         return None
 
-def transcode_commands(output_format, resample, needed_sample_rate, flac_file, transcode_file):
+def transcode_commands(output_format, resample: bool, needed_sample_rate: int | None, flac_file, transcode_file):
     '''
     Return a list of transcode steps (one command per list element),
     which can be used to create a transcode pipeline for flac_file ->
@@ -144,8 +145,8 @@ def transcode_commands(output_format, resample, needed_sample_rate, flac_file, t
         transcoding_steps.append(flac_encoder)
 
     transcode_args = {
-        'FLAC' : pipes.quote(flac_file),
-        'FILE' : pipes.quote(transcode_file),
+        'FLAC' : shlex.quote(flac_file),
+        'FILE' : shlex.quote(transcode_file),
         'OPTS' : encoders[output_format]['opts'],
         'SAMPLERATE' : needed_sample_rate,
     }
@@ -168,16 +169,16 @@ def transcode(flac_file, output_dir, output_format):
     flac_info = mutagen.flac.FLAC(flac_file)
     sample_rate = flac_info.info.sample_rate
     bits_per_sample = flac_info.info.bits_per_sample
-    resample = sample_rate > 48000 or bits_per_sample > 16
+    resample: bool = sample_rate > 48000 or bits_per_sample > 16
 
     # if resampling isn't needed then needed_sample_rate will not be used.
     needed_sample_rate = None
 
     if resample:
         if sample_rate % 44100 == 0:
-            needed_sample_rate = '44100'
+            needed_sample_rate = 44100
         elif sample_rate % 48000 == 0:
-            needed_sample_rate = '48000'
+            needed_sample_rate = 48000
         else:
             raise UnknownSampleRateException('FLAC file "{0}" has a sample rate {1}, which is not 88.2, 176.4, 96, or 192kHz but needs resampling, this is unsupported'.format(flac_file, sample_rate))
 
@@ -185,14 +186,14 @@ def transcode(flac_file, output_dir, output_format):
         raise TranscodeDownmixException('FLAC file "{0}" has more than 2 channels, unsupported'.format(flac_file))
 
     # determine the new filename
-    transcode_basename = os.path.splitext(os.path.basename(flac_file))[0]
+    transcode_basename = path.splitext(os.path.basename(flac_file))[0]
     transcode_basename = re.sub(r'[\?<>\\*\|"]', '_', transcode_basename)
-    transcode_file = os.path.join(output_dir, transcode_basename)
+    transcode_file = path.join(output_dir, transcode_basename)
     transcode_file += encoders[output_format]['ext']
 
-    if not os.path.exists(os.path.dirname(transcode_file)):
+    if not os.path.exists(path.dirname(transcode_file)):
         try:
-            os.makedirs(os.path.dirname(transcode_file))
+            os.makedirs(path.dirname(transcode_file))
         except OSError as e:
             if e.errno == errno.EEXIST:
                 # Harmless race condition -- another transcode process
@@ -226,69 +227,37 @@ def transcode(flac_file, output_dir, output_format):
 
     return transcode_file
 
-def get_transcode_dir(flac_dir, output_dir, output_format, resample):
+def get_transcode_dir(flac_dir, output_dir, output_format, resample) -> str:
     full_flac_dir = flac_dir
-    transcode_dir = os.path.basename(flac_dir)
+    transcode_dir = path.basename(flac_dir)
     flac_dir = transcode_dir
+
+    def some_check(string: str):
+        return string in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in some_numbers)))
+
+    def replace_insensitive(pattern: str, replacement: str, source: str):
+        return re.sub(re.compile(pattern, re.I), replacement, source)
 
     # This is what happens when you spend your time transcoding 24 bit to 16 for
     # perfect FLACs.
-    if 'HD FLAC' in flac_dir.upper():
-        transcode_dir = re.sub(re.compile('HD FLAC', re.I), output_format, transcode_dir)
-    elif 'FLAC HD' in flac_dir.upper():
-        transcode_dir = re.sub(re.compile('FLAC HD', re.I), output_format, transcode_dir)
-    elif 'FLAC 24-BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC 24-BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC-24BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC-24BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC-24' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC-24', re.I), output_format, transcode_dir)
-    elif 'FLAC 24BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC 24BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC 24 BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC 24 BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC, 24BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC, 24BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC, 24 BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC, 24 BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC, 24-BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC, 24-BIT', re.I), output_format, transcode_dir)
-    elif 'FLAC 24' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC 24', re.I), output_format, transcode_dir)
-    elif 'FLAC24' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC24', re.I), output_format, transcode_dir)
-    elif 'FLAC96' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('FLAC96', re.I), output_format, transcode_dir)
-    elif '24-BIT FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24-BIT FLAC', re.I), output_format, transcode_dir)
-    elif '24-BIT LOSSLESS FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24-BIT LOSSLESS FLAC', re.I), output_format, transcode_dir)
-    elif '24BIT FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24BIT FLAC', re.I), output_format, transcode_dir)
-    elif '24 BIT FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24 BIT FLAC', re.I), output_format, transcode_dir)
-    elif '24FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24FLAC', re.I), output_format, transcode_dir)
-    elif '24 FLAC' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24 FLAC', re.I), output_format, transcode_dir)
-    elif 'FLAC' in flac_dir.upper():
-        transcode_dir = re.sub(re.compile('FLAC', re.I), output_format, transcode_dir)
-    elif '24 BITS' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24 BITS', re.I), output_format, transcode_dir)
-    elif '24-BITS' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24-BITS', re.I), output_format, transcode_dir)
-    elif '24BITS' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24BITS', re.I), output_format, transcode_dir)
-    elif '24BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24BIT', re.I), output_format, transcode_dir)
-    elif '24 BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24 BIT', re.I), output_format, transcode_dir)
-    elif '24-BIT' in flac_dir.upper() and ((flac_dir.upper().count('24') >= 2) or (not any(s in flac_dir for s in ('44', '88', '176', '48', '96', '192')))):
-        transcode_dir = re.sub(re.compile('24-BIT', re.I), output_format, transcode_dir)
-    else:
-        transcode_dir = transcode_dir + " (" + output_format + ")"
-        if output_format != 'FLAC':
-            transcode_dir = re.sub(re.compile('FLAC', re.I), '', transcode_dir)
+    some_numbers = ('44', '88', '176', '48', '96', '192')
+    list_of_flac = ['FLAC', 'FLAC HD', 'HD FLAC']
+    list_of_24_flac = ['FLAC 24-BIT', 'FLAC-24BIT', 'FLAC-24', 'FLAC 24BIT', 'FLAC 24 BIT', 'FLAC, 24BIT', 'FLAC, 24 BIT', 'FLAC, 24-BIT', 'FLAC 24', 'FLAC24', 'FLAC96', '24-BIT FLAC', '24-BIT LOSSLESS FLAC', '24BIT FLAC', '24 BIT FLAC', '24FLAC', '24 FLAC', '24 BITS', '24-BITS', '24BITS', '24BIT', '24 BIT', '24-BIT']
+
+    for flac in list_of_flac:
+        if flac in flac_dir.upper():
+            transcode_dir = replace_insensitive(flac, output_format, transcode_dir)
+            break
+
+    for flac in list_of_24_flac:
+        if some_check(flac):
+            transcode_dir = replace_insensitive(flac, output_format, transcode_dir)
+            break
+
+    transcode_dir = f'{transcode_dir}({output_format})'
+    if output_format != 'FLAC':
+        transcode_dir = replace_insensitive('FLAC', '', transcode_dir)
+
     if resample:
         rate = resample_rate(full_flac_dir)
         if rate == 44100:
@@ -336,7 +305,7 @@ def get_transcode_dir(flac_dir, output_dir, output_format, resample):
 
     return os.path.join(output_dir, transcode_dir)
 
-def transcode_release(flac_dir, output_dir, output_format, max_threads=None):
+def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_threads: int|None = None):
     '''
     Transcode a FLAC release into another format.
     '''
@@ -398,8 +367,9 @@ def transcode_release(flac_dir, output_dir, output_format, max_threads=None):
         # http://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool?rq=1
         pool = multiprocessing.Pool(max_threads, initializer=pool_initializer)
         try:
-            result = pool.map_async(pool_transcode, [(filename, os.path.dirname(filename).replace(flac_dir, transcode_dir), output_format) for filename in flac_files])
-            result.get(60 * 60 * 12)
+            result = pool.map_async(pool_transcode, [(filename, path.dirname(filename).replace(flac_dir, transcode_dir), output_format) for filename in flac_files])
+            twelve_hours = 60 * 60 * 12
+            result.get(timeout=twelve_hours) # horrific, todo: see if we can shorten
             pool.close()
         except:
             pool.terminate()
@@ -427,11 +397,10 @@ def transcode_release(flac_dir, output_dir, output_format, max_threads=None):
         raise
 
 def make_torrent(input_dir, output_dir, tracker, passkey, source):
-    torrent = os.path.join(output_dir, os.path.basename(input_dir)) + ".torrent"
-    if not os.path.exists(os.path.dirname(torrent)):
-        os.path.makedirs(os.path.dirname(torrent))
-    tracker_url = '{tracker}{passkey}/announce'.format(
-        tracker=tracker, passkey=passkey)
+    torrent = os.path.join(output_dir, path.basename(input_dir)) + ".torrent"
+    if not path.exists(path.dirname(torrent)):
+        os.makedirs(path.dirname(torrent))
+    tracker_url = f'{tracker}{passkey}/announce'
     if source == None:
         command = ["mktorrent", "-p", "-a", tracker_url, "-o", torrent, input_dir]
     else:
