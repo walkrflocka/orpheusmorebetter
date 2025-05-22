@@ -9,6 +9,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import logging
 
 import mutagen.flac
 
@@ -352,7 +353,7 @@ def transcode_release(flac_dir, output_dir, output_format, max_threads=None):
         # XXX: if output_dir is not the same as flac_dir, this may not
         # do what the user expects.
         if output_dir != os.path.dirname(flac_dir):
-            print("Warning: no encode necessary, so files won't be placed in", output_dir)
+            logging.info("Warning: no encode necessary, so files won't be placed in", output_dir)
         return flac_dir
 
     # make a new directory for the transcoded files
@@ -362,7 +363,7 @@ def transcode_release(flac_dir, output_dir, output_format, max_threads=None):
     # transcode. Do not change this assumption without considering the
     # consequences!
     transcode_dir = get_transcode_dir(flac_dir, output_dir, output_format, resample)
-    print(transcode_dir)
+    logging.info("    "+transcode_dir)
     if not os.path.exists(transcode_dir):
         os.makedirs(transcode_dir)
     else:

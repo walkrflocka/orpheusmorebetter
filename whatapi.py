@@ -1,22 +1,11 @@
 #!/usr/bin/env python3
 import re
-import os
 import json
 import time
-import mechanicalsoup
+import requests
 import html
+import logging
 
-headers = {
-    'Connection': 'keep-alive',
-    'Cache-Control': 'max-age=0',
-    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_3)'\
-        'AppleWebKit/535.11 (KHTML, like Gecko) Chrome/17.0.963.79'\
-        'Safari/535.11',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9'\
-        ',*/*;q=0.8',
-    'Accept-Encoding': 'gzip,deflate,sdch',
-    'Accept-Language': 'en-US,en;q=0.8',
-    'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3'}
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -28,7 +17,7 @@ media_search_map = {
     'dat': 'DAT',
     'web': 'WEB',
     'blu-ray': 'Blu-ray'
-    }
+}
 
 lossless_media = set(media_search_map.keys())
 
@@ -38,18 +27,15 @@ formats = {
         'encoding': 'Lossless'
     },
     'V0': {
-        'format' : 'MP3',
-        'encoding' : 'V0 (VBR)'
+        'format': 'MP3',
+        'encoding': 'V0 (VBR)'
     },
     '320': {
-        'format' : 'MP3',
-        'encoding' : '320'
-    },
-    'V2': {
-        'format' : 'MP3', 
-        'encoding' : 'V2 (VBR)'
+        'format': 'MP3',
+        'encoding': '320'
     },
 }
+
 
 def allowed_transcodes(torrent):
     """Some torrent types have transcoding restrictions."""
@@ -59,29 +45,28 @@ def allowed_transcodes(torrent):
     else:
         return formats.keys()
 
+
 class LoginException(Exception):
     pass
+
 
 class RequestException(Exception):
     pass
 
+
 class WhatAPI:
     def __init__(self, username=None, password=None, endpoint=None, totp=None):
-        self.session = mechanicalsoup.StatefulBrowser()
-        self.session.session.headers.update(headers)
+        self.session = requests.session()
         self.browser = None
         self.username = username
         self.password = password
         self.totp = totp
-        if endpoint:
-            self.endpoint = endpoint
-        else:
-            self.endpoint = 'https://orpheus.network'
+        self.endpoint = endpoint or 'https://orpheus.network'
         self.authkey = None
         self.passkey = None
         self.userid = None
         self.last_request = time.time()
-        self.rate_limit = 2.0 # seconds between requests
+        self.rate_limit = 8.0  # seconds between requests
         self._login()
 
     def _login(self):
@@ -106,22 +91,27 @@ class WhatAPI:
     def logout(self):
         self.session.get('{0}/logout.php?auth={1}'.format(self.endpoint, self.authkey))
 
-    def request(self, action, **kwargs):
+    def request(self, action, data=None, files=None, **kwargs):
         '''Makes an AJAX request at a given action page'''
         while time.time() - self.last_request < self.rate_limit:
             time.sleep(0.1)
 
         ajaxpage = '{0}/ajax.php'.format(self.endpoint)
         params = {'action': action}
-        if self.authkey:
-            params['auth'] = self.authkey
         params.update(kwargs)
-        r = self.session.get(ajaxpage, params=params, allow_redirects=False)
+
+        if data:
+            data['auth'] = self.authkey
+            r = self.session.post(ajaxpage, params=params, data=data, files=files)
+        else:
+            params['auth'] = self.authkey
+            r = self.session.get(ajaxpage, params=params, allow_redirects=False)
+
         self.last_request = time.time()
         try:
             parsed = json.loads(r.content)
             if parsed['status'] != 'success':
-                raise RequestException
+                raise RequestException(parsed['error'])
             return parsed['response']
         except ValueError:
             raise RequestException
@@ -136,7 +126,7 @@ class WhatAPI:
         r = self.session.get(ajaxpage, params=kwargs, allow_redirects=False)
         self.last_request = time.time()
         return r.content
-    
+
     def get_artist(self, id=None, format='MP3', best_seeded=True):
         res = self.request('artist', id=id)
         torrentgroups = res['torrentgroup']
@@ -184,8 +174,10 @@ class WhatAPI:
         else:
             media_params = ['&media={0}'.format(media_search_map[m]) for m in media]
 
-        pattern = re.compile(r'reportsv2\.php\?action=report&amp;id=(\d+)".*?torrents\.php\?id=(\d+)"', re.MULTILINE | re.IGNORECASE | re.DOTALL)
+        pattern = re.compile(r'reportsv2\.php\?action=report&amp;id=(\d+)".*?torrents\.php\?id=(\d+).*?"',
+                             re.MULTILINE | re.IGNORECASE | re.DOTALL)
         if mode == 'snatched' or mode == 'both' or mode == 'all':
+            logging.info("Finding Snatched")
             url = '{0}/torrents.php?type=snatched&userid={1}&format=FLAC'.format(self.endpoint, self.userid)
             for mp in media_params:
                 page = 1
@@ -195,10 +187,11 @@ class WhatAPI:
                     for torrentid, groupid in pattern.findall(content):
                         if skip is None or torrentid not in skip:
                             yield int(groupid), int(torrentid)
-                    done = 'Next &gt;' not in content
+                    done = 'page={0}'.format(page+1) not in content
                     page += 1
 
         if mode == 'uploaded' or mode == 'both' or mode == 'all':
+            logging.info("Finding Uploaded")
             url = '{0}/torrents.php?type=uploaded&userid={1}&format=FLAC'.format(self.endpoint, self.userid)
             for mp in media_params:
                 page = 1
@@ -208,10 +201,11 @@ class WhatAPI:
                     for torrentid, groupid in pattern.findall(content):
                         if skip is None or torrentid not in skip:
                             yield int(groupid), int(torrentid)
-                    done = 'Next &gt;' not in content
+                    done = 'page={0}'.format(page+1) not in content
                     page += 1
 
         if mode == 'seeding' or mode == 'all':
+            logging.info("Using better.php to find Seeding")
             url = '{0}/better.php?method=transcode&filter=seeding'.format(self.endpoint)
             pattern = re.compile('torrents.php\?groupId=(\d+)&torrentid=(\d+)#\d+')
             content = self.get_html(url)
@@ -219,19 +213,13 @@ class WhatAPI:
                 if skip is None or torrentid not in skip:
                     yield int(groupid), int(torrentid)
 
-    def upload(self, group, torrent, new_torrent, format, description=[]):
-        url = '{0}/upload.php?groupid={1}'.format(self.endpoint, group['group']['id'])
-        self.session.open(url)
-        form = self.session.select_form(selector='.create_form')
-
-        # requests encodes using rfc2231 in python 3 which php doesn't understand
+    def upload(self, group, torrent, new_torrent, format, description=None):
         files = {'file_input': ('1.torrent', open(new_torrent, 'rb'), 'application/x-bittorrent')}
 
-        # MechanicalSoup 0.12.0+ now overwrites files with blank if a matching form field
-        # exists and is not disabled.
-        torrent_field = form.form.find('input', attrs={'id': 'file'})
-        if torrent_field:
-            torrent_field.attrs['disabled'] = 'disabled'
+        form = {
+            'type': '0',
+            'groupid': group['group']['id'],
+        }
 
         if torrent['remastered']:
             form['remaster'] = True
@@ -249,28 +237,49 @@ class WhatAPI:
         form['bitrate'] = formats[format]['encoding']
         form['media'] = torrent['media']
 
-        release_desc = '\n'.join(description)
-        if release_desc:
+        if description:
+            release_desc = '\n'.join(description)
             form['release_desc'] = release_desc
 
-        return self.session.submit_selected(files=files)
+        self.request('upload', data=form, files=files)
 
     def set_24bit(self, torrent):
-        url = '{0}/torrents.php?action=edit&id={1}'.format(self.endpoint, torrent['id'])
-        self.session.open(url)
-        form = self.session.select_form(selector='.create_form')
-        form['bitrate'] = '24bit Lossless'
+        data = {
+            'submit': True,
+            'auth': self.authkey,
+            'type': 1,
+            'action': 'takeedit',
+            'torrentid': torrent['id'],
+            'media': torrent['media'],
+            'format': torrent['format'],
+            'bitrate': '24bit Lossless',
+            'release_desc': torrent['description'],
+        }
+        if torrent['remastered']:
+            data['remaster'] = 'on'
+            data['remaster_year'] = torrent['remasterYear']
+            data['remaster_title'] = torrent['remasterTitle']
+            data['remaster_record_label'] = torrent['remasterRecordLabel']
+            data['remaster_catalogue_number'] = torrent['remasterCatalogueNumber']
 
-        return self.session.submit_selected()
+        url = '{0}/torrents.php?action=edit&id={1}'.format(self.endpoint, torrent['id'])
+
+        while time.time() - self.last_request < self.rate_limit:
+            time.sleep(0.1)
+        self.session.post(url, data=data)
+        self.last_request = time.time()
 
     def release_url(self, group, torrent):
-        return '{0}/torrents.php?id={1}&torrentid={2}#torrent{3}'.format(self.endpoint, group['group']['id'], torrent['id'], torrent['id'])
+        return '{0}/torrents.php?id={1}&torrentid={2}#torrent{3}'.format(self.endpoint, group['group']['id'],
+                                                                         torrent['id'], torrent['id'])
 
     def permalink(self, torrent):
         return '{0}/torrents.php?torrentid={1}'.format(self.endpoint, torrent['id'])
 
     def get_better(self, type=3):
-        p = re.compile(r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)', re.DOTALL)
+        p = re.compile(
+            r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
+            re.DOTALL)
         out = []
         data = self.request_html('better.php', method='transcode', type=type)
         for torrent, id, perma in p.findall(data):
@@ -300,6 +309,7 @@ class WhatAPI:
 
     def get_torrent_info(self, id):
         return self.request('torrent', id=id)['torrent']
+
 
 def unescape(text):
     return html.unescape(text)

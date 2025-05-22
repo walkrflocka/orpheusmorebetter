@@ -6,13 +6,14 @@ import json
 import argparse
 import ConfigParser
 import sys
+import logging
 
 lockfile = os.path.expanduser('~/.orpheusmorebetter/parse.lock')
 
 
 def main():
     if os.path.exists(lockfile):
-        print("Found lockfile, exiting....")
+        logging.error("Found lockfile, exiting....")
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, prog='orpheusmorebetter')
     parser.add_argument('--cache', help='the location of the cache',
@@ -20,7 +21,7 @@ def main():
 
     args = parser.parse_args()
     while parse_stuff(args.cache) and not os.path.exists(lockfile):
-        print("Done encoding cycle")
+        logging.info("Done encoding cycle")
 
 
 def parse_stuff(cache_file):
@@ -44,7 +45,7 @@ def parse_stuff(cache_file):
 
     cmdline = "python3 orpheusmorebetter.py {0}".format(' '.join(permalinks))
     json.dump(cache_new, open(cache_file, 'wb'))
-    print("Executing... {0}".format(cmdline))
+    logging.info("Executing... {0}".format(cmdline))
     os.system(cmdline)
     os.remove(lockfile)
     return True
