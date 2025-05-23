@@ -1,8 +1,9 @@
 import src.transcode as transcode
 
+
 class TestExtMatcher:
     def test_single(self):
-        func = transcode.ext_matcher('.flac')
-        assert func('folder/something.flac')
-        assert func('someotherthing.flac')
-        assert not func('folder/file.mp3')
+        func = transcode.ext_matcher(".flac")
+        assert func("folder/something.flac")
+        assert func("someotherthing.flac")
+        assert not func("folder/file.mp3")
