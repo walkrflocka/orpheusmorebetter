@@ -114,3 +114,4 @@ target/
 
 logs/
 whatapi.py
+.vscode/launch.json

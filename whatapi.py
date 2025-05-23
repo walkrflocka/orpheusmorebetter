@@ -61,13 +61,13 @@ class WhatAPI:
 
         self.session = requests.Session()
         self._login()
-        self.authkey = None
+        self.authkey = ''
 
-        ind_data = self.request_ajax('index')
+        ind_data = self.request_ajax('index', method='GET')
         try:
             self.user_id = ind_data['id']
-            self.authkey = ind_data['authkey']
-            self.passkey = ind_data['passkey']
+            self.authkey: str = ind_data['authkey']
+            self.passkey: str = ind_data['passkey']
         except KeyError as e:
             raise ValueError('Orpheus index did not return one or more expected fields') from e
 
@@ -85,20 +85,32 @@ class WhatAPI:
         assert r.cookies is not None
         LOGGER.info(f'Session opened with cookies')
 
-    def request_ajax(self, action: str, data: Optional[Dict[str, Union[str, int]]] = None, **kwargs: Any) -> Any:
+    def request_ajax(
+            self,
+            action: str,
+            data: Optional[Dict[str, Union[str, int]]] = None,
+            method: Literal['POST', 'GET'] = 'POST',
+            files: Any = None,
+            **kwargs: Any) -> Any:
         '''Makes an AJAX request at a given action page'''
         time_since_last_req = time.time() - self.last_request
         if time_since_last_req < self.min_sec_between_requests:
             time.sleep(self.min_sec_between_requests - time_since_last_req)
 
+        ajaxpage = '{0}ajax.php'.format(self.base_url)
         params = {
             'action': action,
         }
-        if self.authkey is not None:
-            params['auth'] = self.authkey
+
         params.update(kwargs)
 
-        r = self.session.post(self.base_url + 'ajax.php', params=params, data=data)
+        if method == 'GET':
+            params.update({'auth': self.authkey})
+            r = self.session.get(ajaxpage, params=params)
+        elif method == 'POST' :
+            if data is not None:
+                data.update({'auth': self.authkey})
+            r = self.session.post(ajaxpage, params=params, data=data, files=files)
 
         self.last_request = time.time()
 
@@ -124,7 +136,7 @@ class WhatAPI:
         return r.content
 
     def get_artist(self, id: Optional[int] =None, format: str ='MP3', best_seeded: bool =True):
-        res = self.request_ajax('artist', id=id)
+        res = self.request_ajax('artist', method='GET', id=id)
         torrentgroups = res['torrentgroup']
         keep_releases: List[str] = []
         for release in torrentgroups:
@@ -242,26 +254,32 @@ class WhatAPI:
         }
 
         if torrent['remastered']:
-            form['remaster'] = True
-            form['remaster_year'] = str(torrent['remasterYear'])
-            form['remaster_title'] = torrent['remasterTitle']
-            form['remaster_record_label'] = torrent['remasterRecordLabel']
-            form['remaster_catalogue_number'] = torrent['remasterCatalogueNumber']
+            form.update({
+                'remaster': True,
+                'remaster_year': str(torrent['remasterYear']),
+                'remaster_title': torrent['remasterTitle'],
+                'remaster_record_label': torrent['remasterRecordLabel'],
+                'remaster_catalogue_number': torrent['remasterCatalogueNumber']
+            })
         else:
-            form['remaster_year'] = ''
-            form['remaster_title'] = ''
-            form['remaster_record_label'] = ''
-            form['remaster_catalogue_number'] = ''
+            form.update({
+                'remaster_year': '',
+                'remaster_title': '',
+                'remaster_record_label': '',
+                'remaster_catalogue_number': ''
+            })
 
-        form['format'] = perfect_three[format]['format']
-        form['bitrate'] = perfect_three[format]['encoding']
-        form['media'] = torrent['media']
+        form.update({
+            'format': perfect_three[format]['format'],
+            'bitrate': perfect_three[format]['encoding'],
+            'media': torrent['media']
+        })
 
         if description:
             release_desc = '\n'.join(description)
             form['release_desc'] = release_desc
 
-        self.request_ajax('upload', data=form, files=files, authkey = self.authkey)
+        self.request_ajax('upload', data=form, files=files, method='POST')
 
     def set_24bit(self, torrent: Dict[str, str]):
         data: Dict[str, Union[str, bool, None, int]] = {
@@ -334,4 +352,4 @@ class WhatAPI:
         return None
 
     def get_torrent_info(self, id):
-        return self.request_ajax('torrent', id=id)['torrent']
+        return self.request_ajax('torrent', id=id, method='GET')['torrent']
