@@ -15,7 +15,7 @@ LOGGER = logging.getLogger('transcode')
 
 import mutagen.flac
 
-import tagging
+from . import tagging
 
 encoders = {
     '320':  {'enc': 'lame', 'ext': '.mp3',  'opts': '-h -b 320 --ignore-tag-errors'},

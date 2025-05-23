@@ -4,12 +4,8 @@ import time
 import requests
 import logging
 from bs4 import BeautifulSoup, Tag
-import html
 
 from typing import Optional, List, Dict, Any, Set, Union, Literal
-
-import requests.auth
-import requests.cookies
 
 from models.formats import perfect_three
 

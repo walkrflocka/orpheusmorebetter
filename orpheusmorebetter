@@ -17,9 +17,7 @@ from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 from typing import List
 
-import tagging
-import transcode
-import whatapi
+from src import tagging, transcode, whatapi
 from _version import __version__
 
 if sys.version_info < (3, 6, 0):

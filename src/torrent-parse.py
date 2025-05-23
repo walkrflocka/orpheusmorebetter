@@ -3,7 +3,6 @@
 import os
 import json
 import argparse
-import sys
 import logging
 
 lockfile = os.path.expanduser('~/.orpheusmorebetter/parse.lock')

@@ -1,4 +1,4 @@
-import transcode
+import src.transcode as transcode
 
 class TestExtMatcher:
     def test_single(self):

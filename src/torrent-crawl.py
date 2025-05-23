@@ -2,12 +2,12 @@
 
 import sys
 import os
-import ConfigParser
+from configparser import ConfigParser
 import json
 import argparse
 import logging
 
-from whatapi import WhatAPI
+from .whatapi import WhatAPI
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
 
     args = parser.parse_args()
 
-    config = ConfigParser.SafeConfigParser()
+    config = ConfigParser()
     try:
         open(args.config)
         config.read(args.config)
@@ -42,7 +42,8 @@ def main():
         cache = json.load(open(args.cache))
     except:
         cache = []
-        json.dump(cache, open(args.cache, 'wb'))
+        with open(args.cache, 'wb') as f:
+            json.dump(cache, f)
 
     while len(cache) < args.count:
         logging.info("Refreshing better.php and finding {0} candidates".format(args.count - len(cache)))
