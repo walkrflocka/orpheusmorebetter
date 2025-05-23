@@ -85,7 +85,8 @@ class WhatAPI:
             data={  # it has to be set in the BODY not params, moron
                 "username": self.username,
                 "password": self.password,
-                "twofa": self.totp,
+                "mfa": self.totp,
+                "login": "Log in"
             },
         )
         r.raise_for_status()
