@@ -343,7 +343,8 @@ def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_th
 
     try:
         arg_list = [(filename, path.dirname(filename).replace(flac_dir, transcode_dir), output_format) for filename in flac_files]
-        for a in arg_list:
+        for filename, output_dir, output_format in arg_list:
+            transcode(filename, output_dir, output_format)
             LOGGER.info(f'Processing file {a[0]}')
 
 

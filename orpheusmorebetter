@@ -304,9 +304,15 @@ def main():
                 tmpdir = tempfile.mkdtemp()
 
                 local_output_dir: str = config.get('orpheus', 'output_dir_{}'.format(format), fallback=output_dir)
-                local_torrent_dir: str = config.get('orpheus', 'torrent_dir_{}'.format(format), fallback=torrent_dir)
                 if not local_output_dir.endswith('/'):
                     local_output_dir += '/'
+
+                local_torrent_dir: str = config.get('orpheus', 'torrent_dir_{}'.format(format), fallback=torrent_dir)
+                if not local_torrent_dir.endswith('/'):
+                    local_torrent_dir += '/'
+
+                if not os.path.exists(local_torrent_dir):
+                    os.mkdir(local_torrent_dir)
 
                 try:
                     transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, max_threads=args.threads)
