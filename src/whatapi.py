@@ -186,7 +186,7 @@ class WhatAPI:
         media_params: List[str],
         skip: Optional[List[str]],
     ):
-        LOGGER.info(f"Finding {type}")
+        LOGGER.info(f"Finding {type} torrents")
         url = f"{self.base_url}/torrents.php?type={type}&userid={self.user_id}&format=FLAC"
 
         for mp in media_params:
@@ -198,9 +198,7 @@ class WhatAPI:
                 soup = BeautifulSoup(content, features="lxml")
                 torrent_tab = soup.find("table", class_="torrent_table")
                 if not isinstance(torrent_tab, Tag):
-                    LOGGER.warning(
-                        f"Failed to find torrent_tab element for media params {mp}"
-                    )
+                    LOGGER.info(f"Found no results for media {mp.replace('&media=', '')}")
                     break
                 torrent_rows = torrent_tab.find_all("tr", class_="torrent_row")
 
