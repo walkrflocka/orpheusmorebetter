@@ -15,7 +15,6 @@ import logging
 import html
 from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
-from models.formats import perfect_three
 from typing import List
 
 import tagging

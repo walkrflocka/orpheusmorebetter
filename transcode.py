@@ -8,7 +8,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import sys
 from typing import Any, Callable, Optional
 import logging
 
@@ -85,9 +84,9 @@ def locate(root, match_function: Callable[[str], Any], ignore_dotfiles=True):
             else:
                 yield filename
 
-def ext_matcher(*extensions):
+def ext_matcher(*extensions: str) -> Callable[[str], bool]:
     '''
-    Returns a function which checks if a filename has one of the specified extensions.
+    Returns a function which checks if a filename has one of the specified extensions. Expects a string in the format '.ext'.
     '''
     return lambda f: os.path.splitext(f)[-1].lower() in extensions
 
