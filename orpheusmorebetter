@@ -12,8 +12,10 @@ import sys
 import tempfile
 import traceback
 import logging
+import html
 from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
+from models.formats import perfect_three
 
 import tagging
 import transcode
@@ -54,7 +56,7 @@ def formats_needed(group, torrent, supported_formats):
 
     others = filter(same_group, group['torrents'])
     current_formats = set((t['format'], t['encoding']) for t in others)
-    missing_formats = [format for format, details in [(f, whatapi.formats[f]) for f in supported_formats]\
+    missing_formats = [format for format, details in [(f, whatapi.perfect_three[f]) for f in supported_formats]\
                            if (details['format'], details['encoding']) not in current_formats]
     allowed_formats = whatapi.allowed_transcodes(torrent)
     return [format for format in missing_formats if format in allowed_formats]
@@ -109,7 +111,8 @@ def main():
             os.makedirs(os.path.dirname(args.config))
         # fill in the config file with default values
         config.add_section('orpheus')
-        config.set('orpheus', 'api_token', '')
+        config.set('orpheus', 'username', '')
+        config.set('orpheus', 'password', '')
         config.set('orpheus', 'data_dir', '')
         config.set('orpheus', 'output_dir', '')
         config.set('orpheus', 'torrent_dir', '')
@@ -124,7 +127,8 @@ def main():
         logger.warning("Please edit the configuration file: {0}".format(args.config))
         sys.exit(2)
     finally:
-        api_token: str = config.get('orpheus', 'api_token')
+        username: str = config.get('orpheus', 'username')
+        password: str = config.get('orpheus', 'password')
         do_24_bit: str = config.get('orpheus', '24bit_behaviour')
         data_dir: list[str] = [os.path.expanduser(d) for d in config.get('orpheus', 'data_dir').split(';')]
         try:
@@ -170,7 +174,7 @@ def main():
     upload_torrent = not args.no_upload
 
     logger.info("Logging in to Orpheus Network...")
-    api = whatapi.WhatAPI(api_token, endpoint, args.totp)
+    api = whatapi.WhatAPI(username, password, endpoint, args.totp)
 
     try:
         with open(args.cache, 'rb') as f:
@@ -183,7 +187,8 @@ def main():
             pickle.dump(set(), f)
 
     if args.skip:
-        skip = [int(query['torrentid']) for query in [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
+        parsed_urls = [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]
+        skip = [int(query['torrentid']) for query in parsed_urls]
         for id in skip:
             logger.info("Skipping torrent {0}".format(str(id)))
             seen.add(str(id))
@@ -195,12 +200,12 @@ def main():
         if len(args.release_urls) == 1 and os.path.isfile(args.release_urls[0]):
             logger.info("You supplied a url list, ignoring your configuration's media types.")
             with open(args.release_urls[0]) as f:
-                candidates = [(int(query['id']), int(query['torrentid'])) for query in\
-                        [dict(parse_qsl(urlparse(url).query)) for url in f]]
+                parsed_urls = [dict(parse_qsl(urlparse(url).query)) for url in f]
+                candidates = [(int(query['id']), int(query['torrentid'])) for query in parsed_urls]
         else:
             logger.info("You supplied one or more release URLs, ignoring your configuration's media types.")
-            candidates = [(int(query['id']), int(query['torrentid'])) for query in\
-                    [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
+            parsed_urls = [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]
+            candidates = [(int(query['id']), int(query['torrentid'])) for query in parsed_urls]
     else:
         if args.mode is None:
             if mode == 'none':
@@ -213,10 +218,10 @@ def main():
             candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
 
     for groupid, torrentid in candidates:
-        group = api.request('torrentgroup', id=groupid)
+        group = api.request_ajax('torrentgroup', id=groupid)
         torrent = [t for t in group['torrents'] if t['id'] == torrentid][0]
 
-        release = "Release found: {0} ({1})".format(whatapi.unescape(group['group']['name']), group['group']['year'])
+        release = "Release found: {0} ({1})".format(html.unescape(group['group']['name']), group['group']['year'])
         releaseurl = "  Release URL: {0}".format(api.release_url(group, torrent))
 
         logger.info("")
@@ -225,13 +230,13 @@ def main():
 
         if torrent['filePath'] is None:
             for d in data_dir:
-                flac_file = os.path.join(d, whatapi.unescape(torrent['fileList']).split('{{{')[0])
+                flac_file = os.path.join(d, html.unescape(torrent['fileList']).split('{{{')[0])
 
                 if not os.path.exists(flac_file):
                     continue
 
                 flac_dir = os.path.join(d, "{0} ({1}) [FLAC]".format(
-                    whatapi.unescape(group['group']['name']), group['group']['year']))
+                    html.unescape(group['group']['name']), group['group']['year']))
 
                 if not os.path.exists(flac_dir):
                     os.makedirs(flac_dir)
@@ -244,7 +249,7 @@ def main():
                 continue
         else:
             for d in data_dir:
-                flac_dir = os.path.join(d, whatapi.unescape(torrent['filePath']))
+                flac_dir = os.path.join(d, html.unescape(torrent['filePath']))
                 if os.path.exists(flac_dir):
                     break
 
@@ -264,7 +269,7 @@ def main():
                             continue
                     logger.info("Marking release as 24bit lossless.")
                     api.set_24bit(torrent)
-                    group = api.request('torrentgroup', id=groupid)
+                    group = api.request_ajax('torrentgroup', id=groupid)
                     torrent = [t for t in group['torrents'] if t['id'] == torrentid][0]
             except Exception as e:
                 logger.error("Error: can't edit 24-bit torrent - skipping: {0}".format(e))

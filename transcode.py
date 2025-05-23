@@ -370,8 +370,8 @@ def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_th
         try:
             result = pool.map_async(pool_transcode, [(filename, path.dirname(filename).replace(flac_dir, transcode_dir), output_format) for filename in flac_files])
             twelve_hours = 60 * 60 * 12
-            result.get(timeout=twelve_hours) # horrific, todo: see if we can shorten            
-            gool.close()
+            result.get(timeout=twelve_hours) # horrific, todo: see if we can shorten
+            pool.close()
         except:
             pool.terminate()
             raise

@@ -4,6 +4,7 @@ import time
 import requests
 import logging
 from bs4 import BeautifulSoup, Tag
+import html
 
 from typing import Optional, List, Dict, Any, Set, Union, Literal
 
@@ -46,41 +47,58 @@ class RequestException(Exception):
 
 
 class WhatAPI:
-    def __init__(self, api_token: str, endpoint: str = 'https://orpheus.network', totp: Optional[str] = None):
+    def __init__(self, username: str, password: str, endpoint: str = 'https://orpheus.network/', totp: Optional[str] = None):
         self.browser = None
-        self.api_token: str = api_token
+        self.username: str = username
+        self.password: str = password
         self.totp: Optional[str] = totp
-        self.endpoint: str = endpoint
+
+        assert endpoint.endswith('/')
+        self.base_url: str = endpoint
 
         self.last_request = time.time()
         self.min_sec_between_requests = 5.0
 
         self.session = requests.Session()
-        self.session.headers.update({'Authorization': f'token {self.api_token}'})
+        self._login()
+        self.authkey = None
 
-        ind_data = self.request('index')
+        ind_data = self.request_ajax('index')
         try:
             self.user_id = ind_data['id']
+            self.authkey = ind_data['authkey']
+            self.passkey = ind_data['passkey']
         except KeyError as e:
-            raise ValueError('Orpheus did not return a user ID') from e
+            raise ValueError('Orpheus index did not return one or more expected fields') from e
 
-        self.authkey = ind_data['authkey']
-        self.passkey = ind_data['passkey']
+    def _login(self):
+        '''Prime the session with a login cookie so we can do more tomfoolery later'''
+        r = self.session.post(
+            url = self.base_url + 'login.php',
+            data = { # it has to be set in the BODY not params, moron
+                'username': self.username,
+                'password': self.password,
+                'twofa': self.totp
+            }
+        )
+        r.raise_for_status()
+        assert r.cookies is not None
+        LOGGER.info(f'Session opened with cookies')
 
-
-    def request(self, action: str, data: Optional[Dict[str, str]] = None, **kwargs: Any) -> Any:
+    def request_ajax(self, action: str, data: Optional[Dict[str, Union[str, int]]] = None, **kwargs: Any) -> Any:
         '''Makes an AJAX request at a given action page'''
         time_since_last_req = time.time() - self.last_request
         if time_since_last_req < self.min_sec_between_requests:
             time.sleep(self.min_sec_between_requests - time_since_last_req)
 
-        ajaxpage = f'{self.endpoint}/ajax.php'
-        params = {'action': action}
+        params = {
+            'action': action,
+        }
+        if self.authkey is not None:
+            params['auth'] = self.authkey
         params.update(kwargs)
 
-        r = self.session.post(ajaxpage, params=params, data=data)
-
-        LOGGER.info(f'Session opened with cookies {r.text}')
+        r = self.session.post(self.base_url + 'ajax.php', params=params, data=data)
 
         self.last_request = time.time()
 
@@ -93,18 +111,20 @@ class WhatAPI:
         except ValueError as e:
             raise RequestException from e
 
-    def request_html(self, action: str, **kwargs: Any):
+    def request_webpage(self, action: str, **kwargs: Any):
+        '''Grab the HTML content of a page'''
         time_since_last_req = time.time() - self.last_request
         if time_since_last_req < self.min_sec_between_requests:
             time.sleep(self.min_sec_between_requests - time_since_last_req)
 
-        ajaxpage = '{0}action'.format(self.endpoint)
-        r = self.session.get(ajaxpage, params=kwargs, allow_redirects=False)
+        url = self.base_url + action
+        params = {'auth': self.authkey} | kwargs
+        r = self.session.get(url, params=params, allow_redirects=False)
         self.last_request = time.time()
         return r.content
 
     def get_artist(self, id: Optional[int] =None, format: str ='MP3', best_seeded: bool =True):
-        res = self.request('artist', id=id)
+        res = self.request_ajax('artist', id=id)
         torrentgroups = res['torrentgroup']
         keep_releases: List[str] = []
         for release in torrentgroups:
@@ -131,13 +151,14 @@ class WhatAPI:
         if time_since_last_req < self.min_sec_between_requests:
             time.sleep(self.min_sec_between_requests - time_since_last_req)
 
-        r = self.session.get(url, params = {'auth': self.authkey}, allow_redirects=False)
+        params = {'auth': self.authkey}
+        r = self.session.get(url, params=params, allow_redirects=False)
         self.last_request = time.time()
         return r.text
 
     def crawl_torrents_php(self, type: Literal['snatched', 'uploaded'], media_params: List[str], skip: Optional[List[str]]):
         LOGGER.info(f"Finding {type}")
-        url = f'{self.endpoint}/torrents.php?type={type}&userid={self.user_id}&format=FLAC'
+        url = f'{self.base_url}/torrents.php?type={type}&userid={self.user_id}&format=FLAC'
 
         for mp in media_params:
             page = 1
@@ -148,30 +169,32 @@ class WhatAPI:
                 soup = BeautifulSoup(content, features='lxml')
                 torrent_tab = soup.find('table', class_ = 'torrent_table')
                 if not isinstance(torrent_tab, Tag):
-                    continue
+                    LOGGER.warning(f'Failed to find torrent_tab element for media params {mp}')
+                    break
                 torrent_rows = torrent_tab.find_all('tr', class_ = 'torrent_row')
 
                 for row in torrent_rows:
-
                     group_info = row.find('div', class_ = 'group_info')
-                    torrent_info_pat = re.compile(r'torrents.php?id=(\d+)&amp;torrentid=(\d+)')
-                    torrent_info_tag = group_info.find(href=torrent_info_pat)
+                    torrent_info_pat = re.compile(r'torrents\.php\?id=(\d+)&torrentid=(\d+)(?:#.*)?')
 
-                    LOGGER.debug(f'Found torrent info {torrent_info_tag}')
+                    for a_tag in group_info.find_all('a'):
+                        href = a_tag.get('href')
+                        if href is None:
+                            continue
 
-                    match = re.search(torrent_info_pat, torrent_info_tag)
+                        match = torrent_info_pat.search(href)
+                        if match is None:
+                            continue
 
-                    if match is None:
-                        LOGGER.error(f'Unable to parse torrent info: {torrent_info_tag}')
-                        continue
+                        LOGGER.debug(f'Found torrent info {href}')
 
-                    torrent_id: str = match.group(1)
-                    group_id:   str = match.group(2)
+                        group_id:   str = match.group(1)
+                        torrent_id: str = match.group(2)
 
-                    if skip is not None and torrent_id in skip:
-                        continue
+                        if skip is not None and torrent_id in skip:
+                            continue
 
-                    yield int(group_id), int(torrent_id)
+                        yield int(group_id), int(torrent_id)
 
                 done = 'page={0}'.format(page+1) not in content
                 page += 1
@@ -203,7 +226,7 @@ class WhatAPI:
 
         if mode == 'seeding' or mode == 'all':
             LOGGER.info("Using better.php to find Seeding")
-            url = '{0}/better.php?method=transcode&filter=seeding'.format(self.endpoint)
+            url = '{0}/better.php?method=transcode&filter=seeding'.format(self.base_url)
             pattern = re.compile(r'torrents.php\?groupId=(\d+)&torrentid=(\d+)#\d+')
             content = self.get_html(url)
             for group_id, torrent_id in pattern.findall(content):
@@ -238,7 +261,7 @@ class WhatAPI:
             release_desc = '\n'.join(description)
             form['release_desc'] = release_desc
 
-        self.request('upload', data=form, files=files)
+        self.request_ajax('upload', data=form, files=files, authkey = self.authkey)
 
     def set_24bit(self, torrent: Dict[str, str]):
         data: Dict[str, Union[str, bool, None, int]] = {
@@ -258,7 +281,7 @@ class WhatAPI:
             data['remaster_record_label'] = torrent['remasterRecordLabel']
             data['remaster_catalogue_number'] = torrent['remasterCatalogueNumber']
 
-        url = '{0}/torrents.php?action=edit&id={1}'.format(self.endpoint, torrent['id'])
+        url = '{0}/torrents.php?action=edit&id={1}'.format(self.base_url, torrent['id'])
 
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
@@ -266,23 +289,23 @@ class WhatAPI:
         self.last_request = time.time()
 
     def release_url(self, group: Dict[str, Dict[str, str]], torrent: Dict[str, str]):
-        return '{0}/torrents.php?id={1}&torrentid={2}#torrent{3}'.format(self.endpoint, group['group']['id'],
+        return '{0}/torrents.php?id={1}&torrentid={2}#torrent{3}'.format(self.base_url, group['group']['id'],
                                                                          torrent['id'], torrent['id'])
 
     def permalink(self, torrent: Dict[str, str]):
-        return '{0}/torrents.php?torrentid={1}'.format(self.endpoint, torrent['id'])
+        return '{0}/torrents.php?torrentid={1}'.format(self.base_url, torrent['id'])
 
     def get_better(self, type: int =3):
         p = re.compile(
             r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
             re.DOTALL)
         out: List[Dict[str, str]] = []
-        data = self.request_html('better.php', method='transcode', type=type)
+        data = self.get_html('better.php?action=transcode&type=type')
 
         torrent: str
         perma: str
         id: str
-        for torrent, id, perma in p.findall(data): # type: ignore
+        for torrent, id, perma in p.findall(data):
             out.append({
                 'permalink': perma.replace('&amp;', '&'),
                 'id': int(id),
@@ -295,8 +318,14 @@ class WhatAPI:
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
 
-        torrentpage = '{0}/torrents.php'.format(self.endpoint)
-        params = {'action': 'download', 'id': torrent_id}
+        torrentpage = '{0}/torrents.php'.format(self.base_url)
+        params = {
+            'action': 'download',
+            'id': torrent_id,
+            'authkey': self.authkey,
+            'torrent_pass': self.passkey
+        }
+
         r = self.session.get(torrentpage, params=params, allow_redirects=False)
 
         self.last_request = time.time() + 2.0
@@ -305,4 +334,4 @@ class WhatAPI:
         return None
 
     def get_torrent_info(self, id):
-        return self.request('torrent', id=id)['torrent']
+        return self.request_ajax('torrent', id=id)['torrent']
