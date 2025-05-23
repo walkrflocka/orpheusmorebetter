@@ -90,7 +90,7 @@ class WhatAPI:
         )
         r.raise_for_status()
         assert r.cookies is not None
-        LOGGER.info(f"Session opened with cookies")
+        LOGGER.info(f"Orpheus session opened successfully.")
 
     def request_ajax(
         self,
@@ -123,9 +123,7 @@ class WhatAPI:
         self.last_request = time.time()
 
         try:
-            LOGGER.debug(
-                f"Received response with status code {r.status_code}: " + r.text
-            )
+            LOGGER.debug(f"Received response with status code {r.status_code}")
             parsed = r.json()
             if parsed["status"] != "success":
                 raise RequestException(parsed["error"])
