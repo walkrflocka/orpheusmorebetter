@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 import re
-import json
 import time
 import requests
-import html
 import logging
+from bs4 import BeautifulSoup, Tag
 
+from typing import Optional, List, Dict, Any, Set, Union, Literal
+
+import requests.auth
+import requests.cookies
+
+from models.formats import perfect_three
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -21,29 +26,15 @@ media_search_map = {
 
 lossless_media = set(media_search_map.keys())
 
-formats = {
-    'FLAC': {
-        'format': 'FLAC',
-        'encoding': 'Lossless'
-    },
-    'V0': {
-        'format': 'MP3',
-        'encoding': 'V0 (VBR)'
-    },
-    '320': {
-        'format': 'MP3',
-        'encoding': '320'
-    },
-}
+LOGGER = logging.getLogger('api')
 
-
-def allowed_transcodes(torrent):
+def allowed_transcodes(torrent: str) -> List[str]:
     """Some torrent types have transcoding restrictions."""
-    preemphasis = re.search(r"""pre[- ]?emphasi(s(ed)?|zed)""", torrent['remasterTitle'], flags=re.IGNORECASE)
+    preemphasis = re.search(r"pre[- ]?emphasi(s(ed)?|zed)", torrent['remasterTitle'], flags=re.IGNORECASE)
     if preemphasis:
         return []
     else:
-        return formats.keys()
+        return list(perfect_three.keys())
 
 
 class LoginException(Exception):
@@ -55,113 +46,141 @@ class RequestException(Exception):
 
 
 class WhatAPI:
-    def __init__(self, username=None, password=None, endpoint=None, totp=None):
-        self.session = requests.session()
+    def __init__(self, api_token: str, endpoint: str = 'https://orpheus.network', totp: Optional[str] = None):
         self.browser = None
-        self.username = username
-        self.password = password
-        self.totp = totp
-        self.endpoint = endpoint or 'https://orpheus.network'
-        self.authkey = None
-        self.passkey = None
-        self.userid = None
+        self.api_token: str = api_token
+        self.totp: Optional[str] = totp
+        self.endpoint: str = endpoint
+
         self.last_request = time.time()
-        self.rate_limit = 8.0  # seconds between requests
-        self._login()
+        self.min_sec_between_requests = 5.0
 
-    def _login(self):
-        '''Logs in user and gets authkey from server'''
-        loginpage = '{0}/login.php'.format(self.endpoint)
-        data = {'username': self.username,
-                'password': self.password}
-        r = self.session.post(loginpage, data=data)
-        if r.status_code != 200:
-            raise LoginException
-        if self.totp:
-            params = {'act': '2fa'}
-            data = {'2fa': self.totp}
-            r = self.session.post(loginpage, params=params, data=data)
-            if r.status_code != 200:
-                raise LoginException
-        accountinfo = self.request('index')
-        self.authkey = accountinfo['authkey']
-        self.passkey = accountinfo['passkey']
-        self.userid = accountinfo['id']
+        self.session = requests.Session()
+        self.session.headers.update({'Authorization': f'token {self.api_token}'})
 
-    def logout(self):
-        self.session.get('{0}/logout.php?auth={1}'.format(self.endpoint, self.authkey))
+        ind_data = self.request('index')
+        try:
+            self.user_id = ind_data['id']
+        except KeyError as e:
+            raise ValueError('Orpheus did not return a user ID') from e
 
-    def request(self, action, data=None, files=None, **kwargs):
+        self.authkey = ind_data['authkey']
+        self.passkey = ind_data['passkey']
+
+
+    def request(self, action: str, data: Optional[Dict[str, str]] = None, **kwargs: Any) -> Any:
         '''Makes an AJAX request at a given action page'''
-        while time.time() - self.last_request < self.rate_limit:
-            time.sleep(0.1)
+        time_since_last_req = time.time() - self.last_request
+        if time_since_last_req < self.min_sec_between_requests:
+            time.sleep(self.min_sec_between_requests - time_since_last_req)
 
-        ajaxpage = '{0}/ajax.php'.format(self.endpoint)
+        ajaxpage = f'{self.endpoint}/ajax.php'
         params = {'action': action}
         params.update(kwargs)
 
-        if data:
-            data['auth'] = self.authkey
-            r = self.session.post(ajaxpage, params=params, data=data, files=files)
-        else:
-            params['auth'] = self.authkey
-            r = self.session.get(ajaxpage, params=params, allow_redirects=False)
+        r = self.session.post(ajaxpage, params=params, data=data)
+
+        LOGGER.info(f'Session opened with cookies {r.text}')
 
         self.last_request = time.time()
+
         try:
-            parsed = json.loads(r.content)
+            LOGGER.debug(f'Received response with status code {r.status_code}: ' + r.text)
+            parsed = r.json()
             if parsed['status'] != 'success':
                 raise RequestException(parsed['error'])
             return parsed['response']
-        except ValueError:
-            raise RequestException
+        except ValueError as e:
+            raise RequestException from e
 
-    def request_html(self, action, **kwargs):
-        while time.time() - self.last_request < self.rate_limit:
-            time.sleep(0.1)
+    def request_html(self, action: str, **kwargs: Any):
+        time_since_last_req = time.time() - self.last_request
+        if time_since_last_req < self.min_sec_between_requests:
+            time.sleep(self.min_sec_between_requests - time_since_last_req)
 
         ajaxpage = '{0}action'.format(self.endpoint)
-        if self.authkey:
-            kwargs['auth'] = self.authkey
         r = self.session.get(ajaxpage, params=kwargs, allow_redirects=False)
         self.last_request = time.time()
         return r.content
 
-    def get_artist(self, id=None, format='MP3', best_seeded=True):
+    def get_artist(self, id: Optional[int] =None, format: str ='MP3', best_seeded: bool =True):
         res = self.request('artist', id=id)
         torrentgroups = res['torrentgroup']
-        keep_releases = []
+        keep_releases: List[str] = []
         for release in torrentgroups:
             torrents = release['torrent']
             best_torrent = torrents[0]
             keeptorrents = []
             for t in torrents:
-                if t['format'] == format:
-                    if best_seeded:
-                        if t['seeders'] > best_torrent['seeders']:
-                            keeptorrents = [t]
-                            best_torrent = t
-                    else:
-                        keeptorrents.append(t)
+                if t['format'] != format:
+                    keeptorrents.append(t)
+                    continue
+
+                if best_seeded:
+                    if t['seeders'] > best_torrent['seeders']:
+                        keeptorrents = [t]
+                        best_torrent = t
             release['torrent'] = list(keeptorrents)
             if len(release['torrent']):
                 keep_releases.append(release)
         res['torrentgroup'] = keep_releases
         return res
 
-    def get_html(self, url):
-        while time.time() - self.last_request < self.rate_limit:
-            time.sleep(0.1)
+    def get_html(self, url: str):
+        time_since_last_req = time.time() - self.last_request
+        if time_since_last_req < self.min_sec_between_requests:
+            time.sleep(self.min_sec_between_requests - time_since_last_req)
 
-        r = self.session.get(url, allow_redirects=False)
+        r = self.session.get(url, params = {'auth': self.authkey}, allow_redirects=False)
         self.last_request = time.time()
         return r.text
 
-    def get_candidates(self, mode, skip=None, media=lossless_media):
+    def crawl_torrents_php(self, type: Literal['snatched', 'uploaded'], media_params: List[str], skip: Optional[List[str]]):
+        LOGGER.info(f"Finding {type}")
+        url = f'{self.endpoint}/torrents.php?type={type}&userid={self.user_id}&format=FLAC'
+
+        for mp in media_params:
+            page = 1
+            done = False
+            while not done:
+                content = self.get_html(url + mp + f"&page={page}")
+
+                soup = BeautifulSoup(content, features='lxml')
+                torrent_tab = soup.find('table', class_ = 'torrent_table')
+                if not isinstance(torrent_tab, Tag):
+                    continue
+                torrent_rows = torrent_tab.find_all('tr', class_ = 'torrent_row')
+
+                for row in torrent_rows:
+
+                    group_info = row.find('div', class_ = 'group_info')
+                    torrent_info_pat = re.compile(r'torrents.php?id=(\d+)&amp;torrentid=(\d+)')
+                    torrent_info_tag = group_info.find(href=torrent_info_pat)
+
+                    LOGGER.debug(f'Found torrent info {torrent_info_tag}')
+
+                    match = re.search(torrent_info_pat, torrent_info_tag)
+
+                    if match is None:
+                        LOGGER.error(f'Unable to parse torrent info: {torrent_info_tag}')
+                        continue
+
+                    torrent_id: str = match.group(1)
+                    group_id:   str = match.group(2)
+
+                    if skip is not None and torrent_id in skip:
+                        continue
+
+                    yield int(group_id), int(torrent_id)
+
+                done = 'page={0}'.format(page+1) not in content
+                page += 1
+
+    def get_candidates(self, mode: str, skip: Optional[List[str]] = None, media: Set[str] =lossless_media):
         if not media.issubset(lossless_media):
             raise ValueError('Unsupported media type {0}'.format((media - lossless_media).pop()))
 
-        if not any(s == mode for s in ('snatched', 'uploaded', 'both', 'all', 'seeding')):
+        if not mode in ('snatched', 'uploaded', 'both', 'all', 'seeding'):
             raise ValueError('Unsupported candidate mode {0}'.format(mode))
 
         # gazelle doesn't currently support multiple values per query
@@ -177,46 +196,24 @@ class WhatAPI:
         pattern = re.compile(r'reportsv2\.php\?action=report&amp;id=(\d+)".*?torrents\.php\?id=(\d+).*?"',
                              re.MULTILINE | re.IGNORECASE | re.DOTALL)
         if mode == 'snatched' or mode == 'both' or mode == 'all':
-            logging.info("Finding Snatched")
-            url = '{0}/torrents.php?type=snatched&userid={1}&format=FLAC'.format(self.endpoint, self.userid)
-            for mp in media_params:
-                page = 1
-                done = False
-                while not done:
-                    content = self.get_html(url + mp + "&page={0}".format(page))
-                    for torrentid, groupid in pattern.findall(content):
-                        if skip is None or torrentid not in skip:
-                            yield int(groupid), int(torrentid)
-                    done = 'page={0}'.format(page+1) not in content
-                    page += 1
+            yield from self.crawl_torrents_php('snatched', media_params, skip)
 
         if mode == 'uploaded' or mode == 'both' or mode == 'all':
-            logging.info("Finding Uploaded")
-            url = '{0}/torrents.php?type=uploaded&userid={1}&format=FLAC'.format(self.endpoint, self.userid)
-            for mp in media_params:
-                page = 1
-                done = False
-                while not done:
-                    content = self.get_html(url + mp + "&page={0}".format(page))
-                    for torrentid, groupid in pattern.findall(content):
-                        if skip is None or torrentid not in skip:
-                            yield int(groupid), int(torrentid)
-                    done = 'page={0}'.format(page+1) not in content
-                    page += 1
+            yield from self.crawl_torrents_php('uploaded', media_params, skip)
 
         if mode == 'seeding' or mode == 'all':
-            logging.info("Using better.php to find Seeding")
+            LOGGER.info("Using better.php to find Seeding")
             url = '{0}/better.php?method=transcode&filter=seeding'.format(self.endpoint)
-            pattern = re.compile('torrents.php\?groupId=(\d+)&torrentid=(\d+)#\d+')
+            pattern = re.compile(r'torrents.php\?groupId=(\d+)&torrentid=(\d+)#\d+')
             content = self.get_html(url)
-            for groupid, torrentid in pattern.findall(content):
-                if skip is None or torrentid not in skip:
-                    yield int(groupid), int(torrentid)
+            for group_id, torrent_id in pattern.findall(content):
+                if skip is None or torrent_id not in skip:
+                    yield int(group_id), int(torrent_id)
 
-    def upload(self, group, torrent, new_torrent, format, description=None):
+    def upload(self, group: Dict[str, Dict[str, str]], torrent: Dict[str, str], new_torrent: str, format: str, description: Optional[str] = None):
         files = {'file_input': ('1.torrent', open(new_torrent, 'rb'), 'application/x-bittorrent')}
 
-        form = {
+        form: Dict[str, Union[str, int]] = {
             'type': '0',
             'groupid': group['group']['id'],
         }
@@ -233,8 +230,8 @@ class WhatAPI:
             form['remaster_record_label'] = ''
             form['remaster_catalogue_number'] = ''
 
-        form['format'] = formats[format]['format']
-        form['bitrate'] = formats[format]['encoding']
+        form['format'] = perfect_three[format]['format']
+        form['bitrate'] = perfect_three[format]['encoding']
         form['media'] = torrent['media']
 
         if description:
@@ -243,10 +240,9 @@ class WhatAPI:
 
         self.request('upload', data=form, files=files)
 
-    def set_24bit(self, torrent):
-        data = {
+    def set_24bit(self, torrent: Dict[str, str]):
+        data: Dict[str, Union[str, bool, None, int]] = {
             'submit': True,
-            'auth': self.authkey,
             'type': 1,
             'action': 'takeedit',
             'torrentid': torrent['id'],
@@ -264,25 +260,29 @@ class WhatAPI:
 
         url = '{0}/torrents.php?action=edit&id={1}'.format(self.endpoint, torrent['id'])
 
-        while time.time() - self.last_request < self.rate_limit:
+        while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
         self.session.post(url, data=data)
         self.last_request = time.time()
 
-    def release_url(self, group, torrent):
+    def release_url(self, group: Dict[str, Dict[str, str]], torrent: Dict[str, str]):
         return '{0}/torrents.php?id={1}&torrentid={2}#torrent{3}'.format(self.endpoint, group['group']['id'],
                                                                          torrent['id'], torrent['id'])
 
-    def permalink(self, torrent):
+    def permalink(self, torrent: Dict[str, str]):
         return '{0}/torrents.php?torrentid={1}'.format(self.endpoint, torrent['id'])
 
-    def get_better(self, type=3):
+    def get_better(self, type: int =3):
         p = re.compile(
             r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
             re.DOTALL)
-        out = []
+        out: List[Dict[str, str]] = []
         data = self.request_html('better.php', method='transcode', type=type)
-        for torrent, id, perma in p.findall(data):
+
+        torrent: str
+        perma: str
+        id: str
+        for torrent, id, perma in p.findall(data): # type: ignore
             out.append({
                 'permalink': perma.replace('&amp;', '&'),
                 'id': int(id),
@@ -290,16 +290,13 @@ class WhatAPI:
             })
         return out
 
-    def get_torrent(self, torrent_id):
+    def get_torrent(self, torrent_id: str):
         '''Downloads the torrent at torrent_id using the authkey and passkey'''
-        while time.time() - self.last_request < self.rate_limit:
+        while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
 
         torrentpage = '{0}/torrents.php'.format(self.endpoint)
         params = {'action': 'download', 'id': torrent_id}
-        if self.authkey:
-            params['authkey'] = self.authkey
-            params['torrent_pass'] = self.passkey
         r = self.session.get(torrentpage, params=params, allow_redirects=False)
 
         self.last_request = time.time() + 2.0
@@ -309,7 +306,3 @@ class WhatAPI:
 
     def get_torrent_info(self, id):
         return self.request('torrent', id=id)['torrent']
-
-
-def unescape(text):
-    return html.unescape(text)

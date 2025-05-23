@@ -5,13 +5,13 @@ import argparse
 
 import pickle
 
+from datetime import datetime
 import os
 import shutil
 import sys
 import tempfile
 import traceback
 import logging
-from packaging.version import Version
 from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 
@@ -59,22 +59,10 @@ def formats_needed(group, torrent, supported_formats):
     allowed_formats = whatapi.allowed_transcodes(torrent)
     return [format for format in missing_formats if format in allowed_formats]
 
-def rename_logs():
-    for x in range(8, 0, -1): # counts from 8 to 1 inclusive
-        if os.path.isfile("/app/logs/log"+str(x)+".txt"):
-            os.rename("/app/logs/log"+str(x)+".txt", "/app/logs/log"+str(x+1)+".txt")
-    return
-
 def main():
-    # rename_logs()
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s - %(levelname)s - %(message)s',
-                        handlers=[
-                            logging.FileHandler("/app/logs/log1.txt"),
-                            logging.StreamHandler()
-                        ])
-    logging.info("-----------------------------------------------------")
-    logging.info("Starting Up OrpheusMoreBetter...")
+    if not os.path.exists('logs/'):
+        os.mkdir('logs')
+
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter, prog='orpheusmorebetter')
     parser.add_argument('release_urls', nargs='*', help='the URL where the release is located')
     parser.add_argument('-s', '--single', action='store_true', help='only add one format per release (useful for getting unique groups)')
@@ -91,8 +79,23 @@ def main():
     parser.add_argument('-S', '--skip', action='store_true', help="treats a torrent as already processed")
     parser.add_argument('-t', '--totp', help="time based one time password for 2FA", default=None)
     parser.add_argument('-o', '--source', help="the value to put in the source flag in created torrents")
+    parser.add_argument('-d', '--debug', action="store_true")
 
     args = parser.parse_args()
+
+    level = logging.DEBUG
+    logging.basicConfig(
+        level = level,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(f"logs/{str(datetime.now())}.txt", mode = 'w'),
+            logging.StreamHandler()
+        ])
+
+    logger = logging.getLogger('main')
+
+    logger.info("-----------------------------------------------------")
+    logger.info("Starting Up OrpheusMoreBetter...")
 
     # Work with config files
     config = configparser.ConfigParser(interpolation=None)
@@ -106,8 +109,7 @@ def main():
             os.makedirs(os.path.dirname(args.config))
         # fill in the config file with default values
         config.add_section('orpheus')
-        config.set('orpheus', 'username', '')
-        config.set('orpheus', 'password', '')
+        config.set('orpheus', 'api_token', '')
         config.set('orpheus', 'data_dir', '')
         config.set('orpheus', 'output_dir', '')
         config.set('orpheus', 'torrent_dir', '')
@@ -119,11 +121,10 @@ def main():
         config.set('orpheus', 'api', 'https://orpheus.network')
         config.set('orpheus', 'source', 'OPS')
         config.write(open(args.config, 'w'))
-        logging.warning("Please edit the configuration file: {0}".format(args.config))
+        logger.warning("Please edit the configuration file: {0}".format(args.config))
         sys.exit(2)
     finally:
-        username: str = config.get('orpheus', 'username')
-        password: str = config.get('orpheus', 'password')
+        api_token: str = config.get('orpheus', 'api_token')
         do_24_bit: str = config.get('orpheus', '24bit_behaviour')
         data_dir: list[str] = [os.path.expanduser(d) for d in config.get('orpheus', 'data_dir').split(';')]
         try:
@@ -140,8 +141,8 @@ def main():
             else:
                 supported_media = set([medium.strip().lower() for medium in media_config.split(',')])
                 if not supported_media.issubset(set(whatapi.lossless_media)):
-                    logging.error('Unsupported media type "{0}", edit your configuration'.format((supported_media - whatapi.lossless_media).pop()))
-                    logging.error("Supported types are: {0}".format(', '.join(whatapi.lossless_media)))
+                    logger.error('Unsupported media type "{0}", edit your configuration'.format((supported_media - whatapi.lossless_media).pop()))
+                    logger.error("Supported types are: {0}".format(', '.join(whatapi.lossless_media)))
                     sys.exit(2)
         except configparser.NoOptionError:
             supported_media = whatapi.lossless_media
@@ -149,35 +150,15 @@ def main():
         if not config.has_option('orpheus', 'tracker'):
             config.set('orpheus', 'tracker', 'https://home.opsfet.ch/')
             config.write(open(args.config, 'w'))
-            logging.info("Tracker added to config file")
+            logger.info("Tracker added to config file")
         if not config.has_option('orpheus', 'mode'):
             config.set('orpheus', 'mode', 'both')
             config.write(open(args.config, 'w'))
-            logging.info("Candidate mode set to both")
+            logger.info("Candidate mode set to both")
         if not config.has_option('orpheus', 'api'):
             config.set('orpheus', 'api', 'https://orpheus.network')
             config.write(open(args.config, 'w'))
-            logging.info("API endpoint set to https://orpheus.network")
-
-        version_path = os.path.join(os.path.expanduser('~'), '.orpheusmorebetter', '.version')
-        if os.path.isfile(version_path):
-            with open(version_path, 'r') as f:
-                version = f.read()
-        else:
-            version = "1.0.0"
-
-        if Version(version) < Version(__version__):
-            updated = False
-            if Version(version) < Version('2.0.1'):
-                updated = True
-                config.set('orpheus', 'source', 'OPS')
-
-            if updated:
-                config.write(open(args.config, 'w'))
-                logging.info("Migrated version {0} config".format(version))
-
-            with open(version_path, 'w') as f:
-                f.write(__version__)
+            logger.info("API endpoint set to https://orpheus.network")
 
         tracker = config.get('orpheus', 'tracker')
         mode  = config.get('orpheus', 'mode')
@@ -188,8 +169,8 @@ def main():
 
     upload_torrent = not args.no_upload
 
-    logging.info("Logging in to Orpheus Network...")
-    api = whatapi.WhatAPI(username, password, endpoint, args.totp)
+    logger.info("Logging in to Orpheus Network...")
+    api = whatapi.WhatAPI(api_token, endpoint, args.totp)
 
     try:
         with open(args.cache, 'rb') as f:
@@ -204,30 +185,30 @@ def main():
     if args.skip:
         skip = [int(query['torrentid']) for query in [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
         for id in skip:
-            logging.info("Skipping torrent {0}".format(str(id)))
+            logger.info("Skipping torrent {0}".format(str(id)))
             seen.add(str(id))
         pickle.dump(seen, open(args.cache, 'wb'))
         return
 
-    logging.info("Searching for transcode candidates...")
+    logger.info("Searching for transcode candidates...")
     if args.release_urls:
         if len(args.release_urls) == 1 and os.path.isfile(args.release_urls[0]):
-            logging.info("You supplied a url list, ignoring your configuration's media types.")
+            logger.info("You supplied a url list, ignoring your configuration's media types.")
             with open(args.release_urls[0]) as f:
                 candidates = [(int(query['id']), int(query['torrentid'])) for query in\
                         [dict(parse_qsl(urlparse(url).query)) for url in f]]
         else:
-            logging.info("You supplied one or more release URLs, ignoring your configuration's media types.")
+            logger.info("You supplied one or more release URLs, ignoring your configuration's media types.")
             candidates = [(int(query['id']), int(query['torrentid'])) for query in\
                     [dict(parse_qsl(urlparse(url).query)) for url in args.release_urls]]
     else:
         if args.mode is None:
             if mode == 'none':
-                logging.info("No urls provided and scraping is disabled")
+                logger.info("No urls provided and scraping is disabled")
             else:
                 candidates = api.get_candidates(mode, skip=seen, media=supported_media)
         elif args.mode == 'none':
-            logging.info("No urls provided and scraping is disabled")
+            logger.info("No urls provided and scraping is disabled")
         else:
             candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
 
@@ -238,9 +219,9 @@ def main():
         release = "Release found: {0} ({1})".format(whatapi.unescape(group['group']['name']), group['group']['year'])
         releaseurl = "  Release URL: {0}".format(api.release_url(group, torrent))
 
-        logging.info("")
-        logging.info(release)
-        logging.info(releaseurl)
+        logger.info("")
+        logger.info(release)
+        logger.info(releaseurl)
 
         if torrent['filePath'] is None:
             for d in data_dir:
@@ -259,7 +240,7 @@ def main():
                 break
 
             if not os.path.exists(flac_file):
-                logging.warning("Path not found - skipping: {0}".format(flac_file))
+                logger.warning("Path not found - skipping: {0}".format(flac_file))
                 continue
         else:
             for d in data_dir:
@@ -275,26 +256,26 @@ def main():
                     # sure whether the files are 24 bit, we might as well correct the listing
                     # on the site (and get an extra upload in the process).
                     if args.no_24bit_edit:
-                        logging.warning("Release is actually 24-bit lossless, skipping.")
+                        logger.warning("Release is actually 24-bit lossless, skipping.")
                         continue
                     if int(do_24_bit) == 1:
                         confirmation = input("Mark release as 24bit lossless? y/n: ")
                         if confirmation != 'y':
                             continue
-                    logging.info("Marking release as 24bit lossless.")
+                    logger.info("Marking release as 24bit lossless.")
                     api.set_24bit(torrent)
                     group = api.request('torrentgroup', id=groupid)
                     torrent = [t for t in group['torrents'] if t['id'] == torrentid][0]
             except Exception as e:
-                logging.error("Error: can't edit 24-bit torrent - skipping: {0}".format(e))
+                logger.error("Error: can't edit 24-bit torrent - skipping: {0}".format(e))
                 continue
 
         if transcode.is_multichannel(flac_dir):
-            logging.warning("This is a multichannel release, which is unsupported - skipping")
+            logger.warning("This is a multichannel release, which is unsupported - skipping")
             continue
 
         needed = formats_needed(group, torrent, supported_formats)
-        logging.info("  Formats needed: {0}".format(', '.join(needed)))
+        logger.info("  Formats needed: {0}".format(', '.join(needed)))
 
         if needed:
             # Before proceeding, do the basic tag checks on the source
@@ -305,8 +286,8 @@ def main():
             for flac_file in transcode.locate(flac_dir, transcode.ext_matcher('.flac')):
                 (ok, msg) = tagging.check_tags(flac_file, check_tracknumber_format=False)
                 if not ok:
-                    logging.error("A FLAC file in this release has unacceptable tags - skipping: {0}".format(msg))
-                    logging.error("You might be able to trump it.")
+                    logger.error("A FLAC file in this release has unacceptable tags - skipping: {0}".format(msg))
+                    logger.error("You might be able to trump it.")
                     broken_tags = True
                     break
             if broken_tags:
@@ -314,7 +295,7 @@ def main():
 
         for format in needed:
             if os.path.exists(flac_dir):
-                logging.info("    Creating format {0}...".format(format))
+                logger.info("    Creating format {0}...".format(format))
                 tmpdir = tempfile.mkdtemp()
 
                 local_output_dir: str = config.get('orpheus', 'output_dir_{}'.format(format), fallback=output_dir)
@@ -323,26 +304,26 @@ def main():
                 try:
                     transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, max_threads=args.threads)
                     new_torrent = transcode.make_torrent(transcode_dir, tmpdir, tracker, api.passkey, source)
-                    logging.info("      Transcode successful, torrent created")
+                    logger.info("      Transcode successful, torrent created")
                     if upload_torrent:
-                        logging.info("      Uploading to OPS...")
+                        logger.info("      Uploading to OPS...")
                         permalink = api.permalink(torrent)
                         description = create_description(torrent, flac_dir, format, permalink)
                         api.upload(group, torrent, new_torrent, format, description)
                     shutil.copy(new_torrent, local_torrent_dir)
-                    logging.info("      Success.")
+                    logger.info("      Success.")
                     if args.single: break
                 except Exception as e:
-                    logging.error("      Error adding format {0}: {1}".format(format, e))
+                    logger.error("      Error adding format {0}: {1}".format(format, e))
                     traceback.print_exc()
                 finally:
                     shutil.rmtree(tmpdir)
             else:
-                logging.warning("    Path not found - skipping: {0}".format(flac_dir))
+                logger.warning("    Path not found - skipping: {0}".format(flac_dir))
                 break
         seen.add(str(torrentid))
         pickle.dump(seen, open(args.cache, 'wb'))
-    logging.info("Process complete. Exiting.")
+    logger.info("Process complete. Exiting.")
 
 if __name__ == "__main__":
     main()

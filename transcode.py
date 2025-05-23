@@ -9,7 +9,7 @@ import shutil
 import signal
 import subprocess
 import sys
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 import logging
 
 import mutagen.flac
@@ -123,7 +123,7 @@ def resample_rate(flac_dir):
     else:
         return None
 
-def transcode_commands(output_format, resample: bool, needed_sample_rate: int | None, flac_file, transcode_file):
+def transcode_commands(output_format, resample: bool, needed_sample_rate: Optional[int], flac_file, transcode_file):
     '''
     Return a list of transcode steps (one command per list element),
     which can be used to create a transcode pipeline for flac_file ->
@@ -306,7 +306,7 @@ def get_transcode_dir(flac_dir, output_dir, output_format, resample) -> str:
 
     return os.path.join(output_dir, transcode_dir)
 
-def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_threads: int|None = None):
+def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_threads: Optional[int] = None):
     '''
     Transcode a FLAC release into another format.
     '''
@@ -370,8 +370,8 @@ def transcode_release(flac_dir: str, output_dir: str, output_format: str, max_th
         try:
             result = pool.map_async(pool_transcode, [(filename, path.dirname(filename).replace(flac_dir, transcode_dir), output_format) for filename in flac_files])
             twelve_hours = 60 * 60 * 12
-            result.get(timeout=twelve_hours) # horrific, todo: see if we can shorten
-            pool.close()
+            result.get(timeout=twelve_hours) # horrific, todo: see if we can shorten            
+            gool.close()
         except:
             pool.terminate()
             raise
