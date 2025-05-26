@@ -34,7 +34,7 @@ def banner():
 
 
 def create_description(
-    torrent: str, flac_dir: str, format: str, permalink: str
+    torrent: Torrent, flac_dir: str, format: str, permalink: str
 ) -> List[str]:
     # Create an example command to document the transcode process.
     cmds = transcode.transcode_commands(
@@ -362,7 +362,7 @@ def main():
                 continue
         else:
             for d in data_dir:
-                flac_dir = os.path.join(d, html.unescape(torrent["filePath"]))
+                flac_dir = os.path.join(d, html.unescape(torrent.filePath))
                 if os.path.exists(flac_dir):
                     break
 
@@ -374,7 +374,7 @@ def main():
             try:
                 if (
                     transcode.is_24bit(flac_dir)
-                    and torrent["encoding"] != "24bit Lossless"
+                    and torrent.encoding != "24bit Lossless"
                 ):
                     # A lot of people are uploading FLACs from Bandcamp without realizing
                     # that they're actually 24 bit files (usually 24/44.1). Since we know for

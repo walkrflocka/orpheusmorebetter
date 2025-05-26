@@ -10,7 +10,7 @@ the source FLAC to those formats, and upload the resulting files to Orpheus -- a
 Installation
 ------------
 
-`orpheusmorebetter` was designed with Python 3.13.x, downloads of which can be found at https://www.python.org/downloads/. User tests have indicated Python >3.11 is compatible, and theoretically the package should work all the way back to Python 3.9.
+`orpheusmorebetter` was designed to work with 3.10+, but is best run on the newest version of Python 3 available. Downloads thereof can be found at https://www.python.org/downloads/.
 
 To install all required Python packages, `cd` into the `orpheusmorebetter` directory and execute:
 

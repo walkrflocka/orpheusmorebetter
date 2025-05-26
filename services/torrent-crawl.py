@@ -90,7 +90,7 @@ def main():
                 else:
                     raise TypeError(f'Got unexpected response type for torrent file: {type(torrent_file)}')
 
-            item["hash"] = info["infoHash"].upper()
+            # item["hash"] = info.infoHash.upper()
             item["done"] = False
 
             with open(args.cache, 'rw') as f:

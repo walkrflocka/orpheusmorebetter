@@ -149,7 +149,7 @@ class WhatAPI:
         self, id: Optional[int] = None, format: str = "MP3", best_seeded: bool = True
     ) -> Artist:
         res = self.request_ajax("artist", method="GET", id=id)
-        artist = Artist(*res)
+        artist = Artist(**res)
         keep_releases: list[TorrentGroup] = []
         for group in artist.torrentgroup:
             torrents = group.torrent
@@ -276,7 +276,7 @@ class WhatAPI:
 
     def upload(
         self,
-        group: Dict[str, Dict[str, str]],
+        group: TorrentGroup,
         torrent: Torrent,
         new_torrent: str,
         format: str,
@@ -292,17 +292,17 @@ class WhatAPI:
 
         form: Dict[str, Union[str, int]] = {
             "type": "0",
-            "groupid": group["group"]["id"],
+            "groupid": group.id,
         }
 
         if torrent.remastered:
             form.update(
                 {
                     "remaster": True,
-                    "remaster_year": str(torrent["remasterYear"]),
-                    "remaster_title": torrent["remasterTitle"],
-                    "remaster_record_label": torrent["remasterRecordLabel"],
-                    "remaster_catalogue_number": torrent["remasterCatalogueNumber"],
+                    "remaster_year": str(torrent.remasterYear),
+                    "remaster_title": torrent.remasterTitle,
+                    "remaster_record_label": torrent.remasterRecordLabel,
+                    "remaster_catalogue_number": torrent.remasterCatalogueNumber,
                 }
             )
         else:
@@ -319,7 +319,7 @@ class WhatAPI:
             {
                 "format": perfect_three[format]["format"],
                 "bitrate": perfect_three[format]["encoding"],
-                "media": torrent["media"],
+                "media": torrent.media,
             }
         )
 
@@ -340,7 +340,7 @@ class WhatAPI:
             "bitrate": "24bit Lossless",
             "release_desc": torrent.description,
         }
-        if torrent["remastered"]:
+        if torrent.remastered:
             data["remaster"] = "on"
             data["remaster_year"] = torrent.remasterYear
             data["remaster_title"] = torrent.remasterTitle
@@ -406,4 +406,4 @@ class WhatAPI:
 
     def get_torrent_info(self, id):
         t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
-        return Torrent(*t_dict)
+        return Torrent(**t_dict)
