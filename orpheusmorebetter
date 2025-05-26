@@ -19,7 +19,7 @@ from typing import List
 
 from _version import __version__
 
-from src import tagging, transcode, whatapi
+from services import tagging, transcode, whatapi
 from models import TorrentGroup, Torrent
 
 if sys.version_info < (3, 9, 0): # investigate 311

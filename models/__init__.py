@@ -1,3 +1,3 @@
-from torrentgroup import TorrentGroup
-from artist import Artist
-from torrent import Torrent
+from .torrentgroup import TorrentGroup
+from .artist import Artist
+from .torrent import Torrent
