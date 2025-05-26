@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from . import Torrent
+from .torrent import Torrent
 
 class TorrentGroup(BaseModel):
     groupId: int
