@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 class Torrent(BaseModel):
     id: int
-    groupId: int | None
+    groupId: int | None = None
     media: str
     format: str
     seeders: int
