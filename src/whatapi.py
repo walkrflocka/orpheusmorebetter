@@ -27,10 +27,10 @@ lossless_media = set(media_search_map.keys())
 LOGGER = logging.getLogger("api")
 
 
-def allowed_transcodes(torrent: str) -> List[str]:
+def allowed_transcodes(torrent: Torrent) -> List[str]:
     """Some torrent types have transcoding restrictions."""
     preemphasis = re.search(
-        r"pre[- ]?emphasi(s(ed)?|zed)", torrent["remasterTitle"], flags=re.IGNORECASE
+        r"pre[- ]?emphasi(s(ed)?|zed)", torrent.remasterTitle, flags=re.IGNORECASE
     )
     if preemphasis:
         return []
@@ -164,9 +164,10 @@ class WhatAPI:
                     if t.seeders > best_torrent.seeders:
                         keeptorrents = [t]
                         best_torrent = t
-            release.torrent = list(keeptorrents)
-            if len(release.torrent) > 0:
-                keep_releases.append(release)
+            group.torrent = list(keeptorrents)
+            if len(group.torrent) > 0:
+                keep_releases.append(group)
+
         artist.torrentgroup = keep_releases
         return res
 
@@ -183,8 +184,8 @@ class WhatAPI:
     def crawl_torrents_php(
         self,
         type: Literal["snatched", "uploaded"],
-        media_params: List[str],
-        skip: Optional[List[str]],
+        media_params: list[str],
+        skip: set[str] | None,
     ):
         LOGGER.info(f"Finding {type} torrents")
         url = f"{self.base_url}/torrents.php?type={type}&userid={self.user_id}&format=FLAC"
@@ -203,17 +204,17 @@ class WhatAPI:
                 torrent_rows = torrent_tab.find_all("tr", class_="torrent_row")
 
                 for row in torrent_rows:
-                    group_info = row.find("div", class_="group_info")
+                    group_info = row.find("div", class_="group_info") # type: ignore
                     torrent_info_pat = re.compile(
                         r"torrents\.php\?id=(\d+)&torrentid=(\d+)(?:#.*)?"
                     )
 
-                    for a_tag in group_info.find_all("a"):
-                        href = a_tag.get("href")
+                    for a_tag in group_info.find_all("a"): # type: ignore
+                        href = a_tag.get("href") # type: ignore
                         if href is None:
                             continue
 
-                        match = torrent_info_pat.search(href)
+                        match = torrent_info_pat.search(href) # type: ignore
                         if match is None:
                             continue
 
@@ -233,8 +234,8 @@ class WhatAPI:
     def get_candidates(
         self,
         mode: str,
-        skip: Optional[List[str]] = None,
-        media: Set[str] = lossless_media,
+        skip: Optional[set[str]] = None,
+        media: set[str] = lossless_media,
     ):
         if not media.issubset(lossless_media):
             raise ValueError(
@@ -279,7 +280,7 @@ class WhatAPI:
         torrent: Torrent,
         new_torrent: str,
         format: str,
-        description: Optional[str] = None,
+        description: list[str] | None = None,
     ):
         files = {
             "file_input": (
@@ -328,7 +329,7 @@ class WhatAPI:
 
         self.request_ajax("upload", data=form, files=files, method="POST")
 
-    def set_24bit(self, torrent: Dict[str, str]):
+    def set_24bit(self, torrent: Torrent):
         data: Dict[str, Union[str, bool, None, int]] = {
             "submit": True,
             "type": 1,
@@ -364,7 +365,7 @@ class WhatAPI:
             r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
             re.DOTALL,
         )
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str | bool | int]] = []
         data = self.get_html("better.php?action=transcode&type=type")
 
         torrent: str
@@ -380,7 +381,7 @@ class WhatAPI:
             )
         return out
 
-    def get_torrent(self, torrent_id: str):
+    def get_torrent_file(self, torrent_id: int) -> bytes | None:
         """Downloads the torrent at torrent_id using the authkey and passkey"""
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)

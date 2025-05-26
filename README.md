@@ -10,7 +10,7 @@ the source FLAC to those formats, and upload the resulting files to Orpheus -- a
 Installation
 ------------
 
-`orpheusmorebetter` requires Python 3.13.x, downloads of which can be found at https://www.python.org/downloads/.
+`orpheusmorebetter` was designed with Python 3.13.x, downloads of which can be found at https://www.python.org/downloads/. User tests have indicated Python >3.11 is compatible, and theoretically the package should work all the way back to Python 3.9.
 
 To install all required Python packages, `cd` into the `orpheusmorebetter` directory and execute:
 
@@ -47,7 +47,7 @@ Configuration
 
 Open the file `~/.orpheusmorebetter/config` in a text editor. You will see something like this:
 
-```
+```ini
 [whatcd]
 username =
 password =
@@ -164,12 +164,16 @@ Examples
 To transcode and upload every snatch you've ever downloaded along with all
 your uploads (this may take a while):
 
-    $ orpheusmorebetter
+```bash
+orpheusmorebetter
+```
 
 To transcode and upload a specific release (provided you have already
 downloaded the FLAC and it is located in your `data_dir`):
 
-    $ orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000
+```bash
+orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000
+```
 
 Note that if you specify a particular release(s), orpheusmorebetter will
 ignore your configuration's media types and attempt to transcode the

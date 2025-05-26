@@ -17,11 +17,13 @@ from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 from typing import List
 
-from src import tagging, transcode, whatapi
 from _version import __version__
 
-if sys.version_info < (3, 11, 0): # investigate 311
-    raise Exception("Requires Python 3.11.0 or newer")
+from src import tagging, transcode, whatapi
+from models import TorrentGroup, Torrent
+
+if sys.version_info < (3, 9, 0): # investigate 311
+    raise Exception("Requires Python 3.9.0 or newer")
 
 
 def banner():
@@ -262,15 +264,16 @@ def main():
 
     logger.info("Logging in to Orpheus Network...")
     api = whatapi.WhatAPI(username, password, endpoint, args.totp)
+    seen: set[str]
 
     try:
         with open(args.cache, "rb") as f:
-            seen: set = pickle.load(f)
+            seen = pickle.load(f)
     except OSError:
         # If the cache file doesn't exist, create a new one
         print("Cache file not found, creating a new one.")
         with open(args.cache, "wb") as f:
-            seen: set = set()
+            seen = set()
             pickle.dump(set(), f)
 
     if args.skip:
@@ -285,6 +288,7 @@ def main():
         return
 
     logger.info("Searching for transcode candidates...")
+    candidates = None
     if args.release_urls:
         if len(args.release_urls) == 1 and os.path.isfile(args.release_urls[0]):
             logger.info(
@@ -316,34 +320,36 @@ def main():
         else:
             candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
 
-    for groupid, torrentid in candidates:
-        group = api.request_ajax("torrentgroup", id=groupid)
-        torrent = [t for t in group["torrents"] if t["id"] == torrentid][0]
+    if candidates is None:
+        logger.info('No candidates found, ending program.')
+        return # crashout
 
-        release = "Release found: {0} ({1})".format(
-            html.unescape(group["group"]["name"]), group["group"]["year"]
-        )
-        releaseurl = "  Release URL: {0}".format(api.release_url(group, torrent))
+    for groupid, torrentid in candidates:
+        tg_d = api.request_ajax("torrentgroup", id=groupid)
+        # coerce to TorrentGroup - group info is stacked one deep under 'group' key
+        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'])
+        torrent: Torrent = [t for t in group.torrent if t.id == torrentid][0]
+
+        release = f"Release found: {group.name} ({group.year})"
+        releaseurl = f"  Release URL: {api.release_url(group, torrent)}"
 
         logger.info("")
         logger.info(release)
         logger.info(releaseurl)
 
-        if torrent["filePath"] is None:
+        flac_dir = None
+        flac_file = None
+
+        if torrent.filePath is None:
             for d in data_dir:
                 flac_file = os.path.join(
-                    d, html.unescape(torrent["fileList"]).split("{{{")[0]
+                    d, html.unescape(torrent.fileList).split("{{{")[0]
                 )
 
                 if not os.path.exists(flac_file):
                     continue
 
-                flac_dir = os.path.join(
-                    d,
-                    "{0} ({1}) [FLAC]".format(
-                        html.unescape(group["group"]["name"]), group["group"]["year"]
-                    ),
-                )
+                flac_dir = os.path.join(d, f"{group.name} ({group.year}) [FLAC]")
 
                 if not os.path.exists(flac_dir):
                     os.makedirs(flac_dir)
@@ -351,14 +357,18 @@ def main():
                 shutil.copy(flac_file, flac_dir)
                 break
 
-            if not os.path.exists(flac_file):
-                logger.warning("Path not found - skipping: {0}".format(flac_file))
+            if flac_file is not None and not os.path.exists(flac_file):
+                logger.warning(f"Path not found - skipping: {flac_file}")
                 continue
         else:
             for d in data_dir:
                 flac_dir = os.path.join(d, html.unescape(torrent["filePath"]))
                 if os.path.exists(flac_dir):
                     break
+
+        if flac_dir is None:
+            logger.warning(f'Flac dir unset for release {torrentid}')
+            continue
 
         if int(do_24_bit):
             try:
