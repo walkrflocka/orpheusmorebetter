@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 from typing import Optional, List, Dict, Any, Set, Union, Literal
 
 from models.formats import perfect_three
+from models import Torrent, TorrentGroup, Artist
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -146,27 +147,27 @@ class WhatAPI:
 
     def get_artist(
         self, id: Optional[int] = None, format: str = "MP3", best_seeded: bool = True
-    ):
+    ) -> Artist:
         res = self.request_ajax("artist", method="GET", id=id)
-        torrentgroups = res["torrentgroup"]
-        keep_releases: List[str] = []
-        for release in torrentgroups:
-            torrents = release["torrent"]
+        artist = Artist(*res)
+        keep_releases: list[TorrentGroup] = []
+        for group in artist.torrentgroup:
+            torrents = group.torrent
             best_torrent = torrents[0]
             keeptorrents = []
             for t in torrents:
-                if t["format"] != format:
+                if t.format != format:
                     keeptorrents.append(t)
                     continue
 
                 if best_seeded:
-                    if t["seeders"] > best_torrent["seeders"]:
+                    if t.seeders > best_torrent.seeders:
                         keeptorrents = [t]
                         best_torrent = t
-            release["torrent"] = list(keeptorrents)
-            if len(release["torrent"]):
+            release.torrent = list(keeptorrents)
+            if len(release.torrent) > 0:
                 keep_releases.append(release)
-        res["torrentgroup"] = keep_releases
+        artist.torrentgroup = keep_releases
         return res
 
     def get_html(self, url: str):
@@ -275,7 +276,7 @@ class WhatAPI:
     def upload(
         self,
         group: Dict[str, Dict[str, str]],
-        torrent: Dict[str, str],
+        torrent: Torrent,
         new_torrent: str,
         format: str,
         description: Optional[str] = None,
@@ -293,7 +294,7 @@ class WhatAPI:
             "groupid": group["group"]["id"],
         }
 
-        if torrent["remastered"]:
+        if torrent.remastered:
             form.update(
                 {
                     "remaster": True,
@@ -332,33 +333,31 @@ class WhatAPI:
             "submit": True,
             "type": 1,
             "action": "takeedit",
-            "torrentid": torrent["id"],
-            "media": torrent["media"],
-            "format": torrent["format"],
+            "torrentid": torrent.id,
+            "media": torrent.media,
+            "format": torrent.format,
             "bitrate": "24bit Lossless",
-            "release_desc": torrent["description"],
+            "release_desc": torrent.description,
         }
         if torrent["remastered"]:
             data["remaster"] = "on"
-            data["remaster_year"] = torrent["remasterYear"]
-            data["remaster_title"] = torrent["remasterTitle"]
-            data["remaster_record_label"] = torrent["remasterRecordLabel"]
-            data["remaster_catalogue_number"] = torrent["remasterCatalogueNumber"]
+            data["remaster_year"] = torrent.remasterYear
+            data["remaster_title"] = torrent.remasterTitle
+            data["remaster_record_label"] = torrent.remasterRecordLabel
+            data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
 
-        url = "{0}/torrents.php?action=edit&id={1}".format(self.base_url, torrent["id"])
+        url = f"{self.base_url}/torrents.php?action=edit&id={torrent.id}"
 
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
         self.session.post(url, data=data)
         self.last_request = time.time()
 
-    def release_url(self, group: Dict[str, Dict[str, str]], torrent: Dict[str, str]):
-        return "{0}/torrents.php?id={1}&torrentid={2}#torrent{3}".format(
-            self.base_url, group["group"]["id"], torrent["id"], torrent["id"]
-        )
+    def release_url(self, group: TorrentGroup, torrent: Torrent):
+        return f"{self.base_url}/torrents.php?id={group.id}&torrentid={torrent.id}#torrent{torrent.id}"
 
-    def permalink(self, torrent: Dict[str, str]):
-        return "{0}/torrents.php?torrentid={1}".format(self.base_url, torrent["id"])
+    def permalink(self, torrent: Torrent):
+        return f"{self.base_url}/torrents.php?torrentid={torrent.id}"
 
     def get_better(self, type: int = 3):
         p = re.compile(
@@ -405,4 +404,5 @@ class WhatAPI:
         return None
 
     def get_torrent_info(self, id):
-        return self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        return Torrent(*t_dict)

@@ -20,8 +20,8 @@ from typing import List
 from src import tagging, transcode, whatapi
 from _version import __version__
 
-if sys.version_info < (3, 6, 0):
-    raise Exception("Requires Python 3.6.0 or newer")
+if sys.version_info < (3, 11, 0): # investigate 311
+    raise Exception("Requires Python 3.11.0 or newer")
 
 
 def banner():
