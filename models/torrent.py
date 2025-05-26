@@ -9,7 +9,7 @@ class Torrent(BaseModel):
     snatched: int
     remastered: bool
     description: str
-    remasterYear: int
+    remasterYear: int | None = None
     remasterTitle: str
     remasterRecordLabel: str
     remasterCatalogueNumber: str
