@@ -15,5 +15,4 @@ class Torrent(BaseModel):
     remasterCatalogueNumber: str
     fileList: str
     filePath: str
-    fileHash: str
     encoding: str
