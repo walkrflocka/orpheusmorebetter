@@ -193,7 +193,7 @@ def main():
         config.set("orpheus", "24bit_behaviour", "0")
         config.set("orpheus", "tracker", "https://home.opsfet.ch/")
         config.set("orpheus", "mode", "both")
-        config.set("orpheus", "api", "https://orpheus.network")
+        config.set("orpheus", "api", "https://orpheus.network/")
         config.set("orpheus", "source", "OPS")
         config.write(open(args.config, "w"))
         logger.warning("Please edit the configuration file: {0}".format(args.config))
