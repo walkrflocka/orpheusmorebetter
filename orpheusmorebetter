@@ -46,7 +46,7 @@ def create_description(
     )
 
     description = [
-        f"Transcode of [pl=noartist]]{torrent.id}[/pl]",
+        f"Transcode of [pl=noartist]{torrent.id}[/pl]",
         "",
         "Transcode process:",
         "",
