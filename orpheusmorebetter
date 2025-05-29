@@ -244,9 +244,9 @@ def main():
             config.write(open(args.config, "w"))
             logger.info("Candidate mode set to both")
         if not config.has_option("orpheus", "api"):
-            config.set("orpheus", "api", "https://orpheus.network")
+            config.set("orpheus", "api", "https://orpheus.network/")
             config.write(open(args.config, "w"))
-            logger.info("API endpoint set to https://orpheus.network")
+            logger.info("API endpoint set to https://orpheus.network/")
 
         tracker = config.get("orpheus", "tracker")
         mode = config.get("orpheus", "mode")
