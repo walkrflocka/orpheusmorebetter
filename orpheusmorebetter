@@ -46,7 +46,7 @@ def create_description(
     )
 
     description = [
-        "Transcode of [url={0}]{0}[/url]".format(permalink),
+        f"Transcode of [pl=noartist]]{torrent.id}[/pl]",
         "",
         "Transcode process:",
         "",
@@ -57,27 +57,22 @@ def create_description(
     return description
 
 
-def formats_needed(group, torrent, supported_formats):
+def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: list[str]):
     if "" in supported_formats:
         supported_formats.remove("")
 
-    def same_group(t):
-        fields = [
-            "media",
-            "remasterYear",
-            "remasterTitle",
-            "remasterRecordLabel",
-            "remasterCatalogueNumber",
-        ]
-        return all([t[f] == torrent[f] for f in fields])
+    def same_group(t: Torrent):
+        return t.media == torrent.media \
+            and t.remasterYear == torrent.remasterYear \
+            and t.remasterTitle == torrent.remasterTitle \
+            and t.remasterRecordLabel == torrent.remasterRecordLabel \
+            and t.remasterCatalogueNumber == torrent.remasterCatalogueNumber
 
-    others = filter(same_group, group["torrents"])
-    current_formats = set((t["format"], t["encoding"]) for t in others)
+    others = filter(same_group, group.torrent)
+    current_formats = set((t.format, t.encoding) for t in others)
     missing_formats = [
         format
-        for format, details in [
-            (f, whatapi.perfect_three[f]) for f in supported_formats
-        ]
+        for format, details in [(f, whatapi.perfect_three[f]) for f in supported_formats]
         if (details["format"], details["encoding"]) not in current_formats
     ]
     allowed_formats = whatapi.allowed_transcodes(torrent)
