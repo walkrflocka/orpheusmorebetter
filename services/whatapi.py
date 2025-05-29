@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup, Tag
 from typing import Optional, List, Dict, Any, Set, Union, Literal
 
 from models.formats import perfect_three
+from models import Torrent, TorrentGroup, Artist
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -26,10 +27,10 @@ lossless_media = set(media_search_map.keys())
 LOGGER = logging.getLogger("api")
 
 
-def allowed_transcodes(torrent: str) -> List[str]:
+def allowed_transcodes(torrent: Torrent) -> List[str]:
     """Some torrent types have transcoding restrictions."""
     preemphasis = re.search(
-        r"pre[- ]?emphasi(s(ed)?|zed)", torrent["remasterTitle"], flags=re.IGNORECASE
+        r"pre[- ]?emphasi(s(ed)?|zed)", torrent.remasterTitle, flags=re.IGNORECASE
     )
     if preemphasis:
         return []
@@ -146,27 +147,28 @@ class WhatAPI:
 
     def get_artist(
         self, id: Optional[int] = None, format: str = "MP3", best_seeded: bool = True
-    ):
+    ) -> Artist:
         res = self.request_ajax("artist", method="GET", id=id)
-        torrentgroups = res["torrentgroup"]
-        keep_releases: List[str] = []
-        for release in torrentgroups:
-            torrents = release["torrent"]
+        artist = Artist(**res)
+        keep_releases: list[TorrentGroup] = []
+        for group in artist.torrentgroup:
+            torrents = group.torrent
             best_torrent = torrents[0]
             keeptorrents = []
             for t in torrents:
-                if t["format"] != format:
+                if t.format != format:
                     keeptorrents.append(t)
                     continue
 
                 if best_seeded:
-                    if t["seeders"] > best_torrent["seeders"]:
+                    if t.seeders > best_torrent.seeders:
                         keeptorrents = [t]
                         best_torrent = t
-            release["torrent"] = list(keeptorrents)
-            if len(release["torrent"]):
-                keep_releases.append(release)
-        res["torrentgroup"] = keep_releases
+            group.torrent = list(keeptorrents)
+            if len(group.torrent) > 0:
+                keep_releases.append(group)
+
+        artist.torrentgroup = keep_releases
         return res
 
     def get_html(self, url: str):
@@ -182,8 +184,8 @@ class WhatAPI:
     def crawl_torrents_php(
         self,
         type: Literal["snatched", "uploaded"],
-        media_params: List[str],
-        skip: Optional[List[str]],
+        media_params: list[str],
+        skip: set[str] | None,
     ):
         LOGGER.info(f"Finding {type} torrents")
         url = f"{self.base_url}/torrents.php?type={type}&userid={self.user_id}&format=FLAC"
@@ -202,17 +204,17 @@ class WhatAPI:
                 torrent_rows = torrent_tab.find_all("tr", class_="torrent_row")
 
                 for row in torrent_rows:
-                    group_info = row.find("div", class_="group_info")
+                    group_info = row.find("div", class_="group_info") # type: ignore
                     torrent_info_pat = re.compile(
                         r"torrents\.php\?id=(\d+)&torrentid=(\d+)(?:#.*)?"
                     )
 
-                    for a_tag in group_info.find_all("a"):
-                        href = a_tag.get("href")
+                    for a_tag in group_info.find_all("a"): # type: ignore
+                        href = a_tag.get("href") # type: ignore
                         if href is None:
                             continue
 
-                        match = torrent_info_pat.search(href)
+                        match = torrent_info_pat.search(href) # type: ignore
                         if match is None:
                             continue
 
@@ -232,8 +234,8 @@ class WhatAPI:
     def get_candidates(
         self,
         mode: str,
-        skip: Optional[List[str]] = None,
-        media: Set[str] = lossless_media,
+        skip: Optional[set[str]] = None,
+        media: set[str] = lossless_media,
     ):
         if not media.issubset(lossless_media):
             raise ValueError(
@@ -274,11 +276,11 @@ class WhatAPI:
 
     def upload(
         self,
-        group: Dict[str, Dict[str, str]],
-        torrent: Dict[str, str],
+        group: TorrentGroup,
+        torrent: Torrent,
         new_torrent: str,
         format: str,
-        description: Optional[str] = None,
+        description: list[str] | None = None,
     ):
         files = {
             "file_input": (
@@ -290,17 +292,17 @@ class WhatAPI:
 
         form: Dict[str, Union[str, int]] = {
             "type": "0",
-            "groupid": group["group"]["id"],
+            "groupid": group.id,
         }
 
-        if torrent["remastered"]:
+        if torrent.remastered:
             form.update(
                 {
                     "remaster": True,
-                    "remaster_year": str(torrent["remasterYear"]),
-                    "remaster_title": torrent["remasterTitle"],
-                    "remaster_record_label": torrent["remasterRecordLabel"],
-                    "remaster_catalogue_number": torrent["remasterCatalogueNumber"],
+                    "remaster_year": str(torrent.remasterYear),
+                    "remaster_title": torrent.remasterTitle,
+                    "remaster_record_label": torrent.remasterRecordLabel,
+                    "remaster_catalogue_number": torrent.remasterCatalogueNumber,
                 }
             )
         else:
@@ -317,7 +319,7 @@ class WhatAPI:
             {
                 "format": perfect_three[format]["format"],
                 "bitrate": perfect_three[format]["encoding"],
-                "media": torrent["media"],
+                "media": torrent.media,
             }
         )
 
@@ -327,45 +329,43 @@ class WhatAPI:
 
         self.request_ajax("upload", data=form, files=files, method="POST")
 
-    def set_24bit(self, torrent: Dict[str, str]):
+    def set_24bit(self, torrent: Torrent):
         data: Dict[str, Union[str, bool, None, int]] = {
             "submit": True,
             "type": 1,
             "action": "takeedit",
-            "torrentid": torrent["id"],
-            "media": torrent["media"],
-            "format": torrent["format"],
+            "torrentid": torrent.id,
+            "media": torrent.media,
+            "format": torrent.format,
             "bitrate": "24bit Lossless",
-            "release_desc": torrent["description"],
+            "release_desc": torrent.description,
         }
-        if torrent["remastered"]:
+        if torrent.remastered:
             data["remaster"] = "on"
-            data["remaster_year"] = torrent["remasterYear"]
-            data["remaster_title"] = torrent["remasterTitle"]
-            data["remaster_record_label"] = torrent["remasterRecordLabel"]
-            data["remaster_catalogue_number"] = torrent["remasterCatalogueNumber"]
+            data["remaster_year"] = torrent.remasterYear
+            data["remaster_title"] = torrent.remasterTitle
+            data["remaster_record_label"] = torrent.remasterRecordLabel
+            data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
 
-        url = "{0}/torrents.php?action=edit&id={1}".format(self.base_url, torrent["id"])
+        url = f"{self.base_url}/torrents.php?action=edit&id={torrent.id}"
 
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
         self.session.post(url, data=data)
         self.last_request = time.time()
 
-    def release_url(self, group: Dict[str, Dict[str, str]], torrent: Dict[str, str]):
-        return "{0}/torrents.php?id={1}&torrentid={2}#torrent{3}".format(
-            self.base_url, group["group"]["id"], torrent["id"], torrent["id"]
-        )
+    def release_url(self, group: TorrentGroup, torrent: Torrent):
+        return f"{self.base_url}/torrents.php?id={group.id}&torrentid={torrent.id}#torrent{torrent.id}"
 
-    def permalink(self, torrent: Dict[str, str]):
-        return "{0}/torrents.php?torrentid={1}".format(self.base_url, torrent["id"])
+    def permalink(self, torrent: Torrent):
+        return f"{self.base_url}/torrents.php?torrentid={torrent.id}"
 
     def get_better(self, type: int = 3):
         p = re.compile(
             r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
             re.DOTALL,
         )
-        out: List[Dict[str, str]] = []
+        out: list[dict[str, str | bool | int]] = []
         data = self.get_html("better.php?action=transcode&type=type")
 
         torrent: str
@@ -381,7 +381,7 @@ class WhatAPI:
             )
         return out
 
-    def get_torrent(self, torrent_id: str):
+    def get_torrent_file(self, torrent_id: int) -> bytes | None:
         """Downloads the torrent at torrent_id using the authkey and passkey"""
         while time.time() - self.last_request < self.min_sec_between_requests:
             time.sleep(0.1)
@@ -405,4 +405,5 @@ class WhatAPI:
         return None
 
     def get_torrent_info(self, id):
-        return self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        return Torrent(**t_dict)

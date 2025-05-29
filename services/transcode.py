@@ -71,7 +71,11 @@ def run_pipeline(cmds):
     finally:
         signal.signal(signal.SIGPIPE, sigpipe_handler)
 
-    last_stderr = last_proc.communicate()[1]
+    if last_proc is None:
+        LOGGER.warning('No commands run.')
+        return []
+
+    stdout, stderr = last_proc.communicate()
 
     results = []
     for cmd, proc in zip(cmds[:-1], procs[:-1]):
@@ -79,11 +83,11 @@ def run_pipeline(cmds):
         # are finished.
         proc.wait()
         results.append((proc.returncode, proc.stderr.read()))
-    results.append((last_proc.returncode, last_stderr))
+    results.append((last_proc.returncode, stderr))
     return results
 
 
-def locate(root, match_function: Callable[[str], Any], ignore_dotfiles=True):
+def locate(root, match_function: Callable[[str], bool], ignore_dotfiles=True):
     """
     Yields all filenames within the root directory for which match_function returns True.
     """

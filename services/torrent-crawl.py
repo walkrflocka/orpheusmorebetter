@@ -8,6 +8,7 @@ import argparse
 import logging
 
 from .whatapi import WhatAPI
+from models import Torrent
 
 
 def main():
@@ -56,7 +57,7 @@ def main():
         cache = json.load(open(args.cache))
     except:
         cache = []
-        with open(args.cache, "wb") as f:
+        with open(args.cache, "w") as f:
             json.dump(cache, f)
 
     while len(cache) < args.count:
@@ -65,32 +66,37 @@ def main():
                 args.count - len(cache)
             )
         )
-        for torrent in api.get_better(args.better):
+        for item in api.get_better(args.better):
             if len(cache) >= args.count:
                 break
 
-            logging.info("Testing #{0}".format(torrent["id"]))
-            info = api.get_torrent_info(torrent["id"])
-            if info["snatched"] < args.snatches:
+            logging.info("Testing #{0}".format(item["id"]))
+            info: Torrent = api.get_torrent_info(item["id"])
+            if info.snatched < args.snatches:
                 continue
 
             logging.info(
                 "Fetching #{0} with {1} snatches".format(
-                    torrent["id"], info["snatched"]
+                    info.id, info.snatched
                 )
             )
 
             with open(
-                os.path.join(torrent_dir, "%i.torrent" % torrent["id"]), "wb"
+                os.path.join(torrent_dir, "%i.torrent" % item["id"]), "wb"
             ) as f:
-                f.write(api.get_torrent(torrent["id"]))
+                torrent_file = api.get_torrent_file(info.id)
+                if isinstance(torrent_file, bytes):
+                    f.write(torrent_file)
+                else:
+                    raise TypeError(f'Got unexpected response type for torrent file: {type(torrent_file)}')
 
-            torrent["hash"] = info["infoHash"].upper()
-            torrent["done"] = False
+            # item["hash"] = info.infoHash.upper()
+            item["done"] = False
 
-            cache = json.load(open(args.cache))
-            cache.append(torrent)
-            json.dump(cache, open(args.cache, "wb"))
+            with open(args.cache, 'rw') as f:
+                cache = json.load(f)
+                cache.append(item)
+                json.dump(cache, f)
 
     logging.info("Nothing left to do")
 
