@@ -58,7 +58,7 @@ formats = flac, v0, 320, v2
 media = sacd, soundboard, web, dvd, cd, dat, vinyl, blu-ray
 24bit_behaviour = 0
 tracker = https://home.opsfet.ch/
-api = https://orpheus.network
+api = https://orpheus.network/
 mode = both
 source = OPS
 ```
