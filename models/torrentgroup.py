@@ -50,6 +50,6 @@ class TorrentGroup(BaseModel):
         # maybe this should live on the Torrent model? sheit idk
 
         if source_torrent.groupId != self.id:
-            raise ValueError("Provided source torrent group ID does not match group's ID")
+            raise ValueError(f"Provided source torrent group ID does not match group's ID: {source_torrent.groupId} != {self.id}")
 
-        return f"{self.formatted_artist_string} - {self.year} - {self.name} {source_torrent.formatted_media_info} [{target_format.name_for_files}]"
+        return f"{self.formatted_artist_string} - {self.year} - {self.name} {source_torrent.formatted_media_info} [{target_format.long_name}]"
