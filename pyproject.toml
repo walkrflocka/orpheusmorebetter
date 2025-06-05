@@ -1,0 +1,9 @@
+[project]
+name = "OrpheusMoreBetter"
+version = "0.0.1"
+
+[project.scripts]
+orpheusmorebetter = "orpheusmorebetter:main"
+
+[tool.pytest.ini_options]
+addopts = [ "--import-mode=importlib", ]

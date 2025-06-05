@@ -5,10 +5,10 @@ import requests
 import logging
 from bs4 import BeautifulSoup, Tag
 
-from typing import Optional, List, Dict, Any, Set, Union, Literal
+from typing import Any, Literal
 
-from models.formats import perfect_three
-from models import Torrent, TorrentGroup, Artist
+from models import Torrent, TorrentGroup, Format
+from models.exceptions import RequestException
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -26,38 +26,18 @@ lossless_media = set(media_search_map.keys())
 
 LOGGER = logging.getLogger("api")
 
-
-def allowed_transcodes(torrent: Torrent) -> List[str]:
-    """Some torrent types have transcoding restrictions."""
-    preemphasis = re.search(
-        r"pre[- ]?emphasi(s(ed)?|zed)", torrent.remasterTitle, flags=re.IGNORECASE
-    )
-    if preemphasis:
-        return []
-    else:
-        return list(perfect_three.keys())
-
-
-class LoginException(Exception):
-    pass
-
-
-class RequestException(Exception):
-    pass
-
-
 class WhatAPI:
     def __init__(
         self,
         username: str,
         password: str,
         endpoint: str = "https://orpheus.network/",
-        totp: Optional[str] = None,
+        totp: str | None = None,
     ):
         self.browser = None
         self.username: str = username
         self.password: str = password
-        self.totp: Optional[str] = totp
+        self.totp: str | None = totp
 
         assert endpoint.endswith("/")
         self.base_url: str = endpoint
@@ -97,7 +77,7 @@ class WhatAPI:
     def request_ajax(
         self,
         action: str,
-        data: Optional[Dict[str, Union[str, int]]] = None,
+        data: dict[str, str | int] | None = None,
         method: Literal["POST", "GET"] = "POST",
         files: Any = None,
         **kwargs: Any,
@@ -144,32 +124,6 @@ class WhatAPI:
         r = self.session.get(url, params=params, allow_redirects=False)
         self.last_request = time.time()
         return r.content
-
-    def get_artist(
-        self, id: Optional[int] = None, format: str = "MP3", best_seeded: bool = True
-    ) -> Artist:
-        res = self.request_ajax("artist", method="GET", id=id)
-        artist = Artist(**res)
-        keep_releases: list[TorrentGroup] = []
-        for group in artist.torrentgroup:
-            torrents = group.torrent
-            best_torrent = torrents[0]
-            keeptorrents = []
-            for t in torrents:
-                if t.format != format:
-                    keeptorrents.append(t)
-                    continue
-
-                if best_seeded:
-                    if t.seeders > best_torrent.seeders:
-                        keeptorrents = [t]
-                        best_torrent = t
-            group.torrent = list(keeptorrents)
-            if len(group.torrent) > 0:
-                keep_releases.append(group)
-
-        artist.torrentgroup = keep_releases
-        return res
 
     def get_html(self, url: str):
         time_since_last_req = time.time() - self.last_request
@@ -234,7 +188,7 @@ class WhatAPI:
     def get_candidates(
         self,
         mode: str,
-        skip: Optional[set[str]] = None,
+        skip: set[str] | None = None,
         media: set[str] = lossless_media,
     ):
         if not media.issubset(lossless_media):
@@ -279,49 +233,44 @@ class WhatAPI:
         group: TorrentGroup,
         torrent: Torrent,
         new_torrent: str,
-        format: str,
+        format: Format,
         description: list[str] | None = None,
     ):
-        files = {
-            "file_input": (
-                "1.torrent",
-                open(new_torrent, "rb"),
-                "application/x-bittorrent",
-            )
-        }
+        with open(new_torrent, "rb") as f:
+            files = {
+                "file_input": (
+                    "1.torrent",
+                    f.read(),
+                    "application/x-bittorrent",
+                )
+            }
 
-        form: Dict[str, Union[str, int]] = {
+        form: dict[str, str | int] = {
             "type": "0",
             "groupid": group.id,
         }
 
         if torrent.remastered:
-            form.update(
-                {
-                    "remaster": True,
-                    "remaster_year": str(torrent.remasterYear),
-                    "remaster_title": torrent.remasterTitle,
-                    "remaster_record_label": torrent.remasterRecordLabel,
-                    "remaster_catalogue_number": torrent.remasterCatalogueNumber,
-                }
-            )
+            form.update({
+                "remaster": True,
+                "remaster_year": str(torrent.remasterYear),
+                "remaster_title": torrent.remasterTitle,
+                "remaster_record_label": torrent.remasterRecordLabel,
+                "remaster_catalogue_number": torrent.remasterCatalogueNumber,
+            })
         else:
-            form.update(
-                {
-                    "remaster_year": "",
-                    "remaster_title": "",
-                    "remaster_record_label": "",
-                    "remaster_catalogue_number": "",
-                }
-            )
+            form.update({
+                "remaster_year": "",
+                "remaster_title": "",
+                "remaster_record_label": "",
+                "remaster_catalogue_number": "",
+            })
 
-        form.update(
-            {
-                "format": perfect_three[format]["format"],
-                "bitrate": perfect_three[format]["encoding"],
-                "media": torrent.media,
-            }
-        )
+        form.update({
+            "format": format.name,
+            "bitrate": format.encoding,
+            "media": torrent.media,
+        })
 
         if description:
             release_desc = "\n".join(description)
@@ -330,7 +279,7 @@ class WhatAPI:
         self.request_ajax("upload", data=form, files=files, method="POST")
 
     def set_24bit(self, torrent: Torrent):
-        data: Dict[str, Union[str, bool, None, int]] = {
+        data: dict[str, str | bool | None | int] = {
             "submit": True,
             "type": 1,
             "action": "takeedit",

@@ -20,10 +20,11 @@ from typing import List
 from _version import __version__
 
 from services import tagging, transcode, whatapi
-from models import TorrentGroup, Torrent
+from models import TorrentGroup, Torrent, Format
+from models.encoder import encoders
 
-if sys.version_info < (3, 9, 0): # investigate 311
-    raise Exception("Requires Python 3.9.0 or newer")
+if sys.version_info < (3, 10, 0): # investigate 311
+    raise Exception("Requires Python 3.10.0 or newer")
 
 
 def banner():
@@ -34,15 +35,15 @@ def banner():
 
 
 def create_description(
-    torrent: Torrent, flac_dir: str, format: str, permalink: str
+    torrent: Torrent, flac_dir: str, format: Format
 ) -> List[str]:
     # Create an example command to document the transcode process.
     cmds = transcode.transcode_commands(
         format,
         transcode.needs_resampling(flac_dir),
         transcode.resample_rate(flac_dir),
-        "input.flac",
-        "output" + transcode.encoders[format]["ext"],
+        "input.flac", # think this is just a dummy for the desc
+        "output" + encoders[format.name].ext,
     )
 
     description = [
@@ -61,22 +62,21 @@ def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: lis
     if "" in supported_formats:
         supported_formats.remove("")
 
-    def same_group(t: Torrent):
+    def same_edition(t: Torrent):
         return t.media == torrent.media \
             and t.remasterYear == torrent.remasterYear \
             and t.remasterTitle == torrent.remasterTitle \
             and t.remasterRecordLabel == torrent.remasterRecordLabel \
             and t.remasterCatalogueNumber == torrent.remasterCatalogueNumber
 
-    others = filter(same_group, group.torrent)
-    current_formats = set((t.format, t.encoding) for t in others)
-    missing_formats = [
-        format
-        for format, details in [(f, whatapi.perfect_three[f]) for f in supported_formats]
-        if (details["format"], details["encoding"]) not in current_formats
-    ]
-    allowed_formats = whatapi.allowed_transcodes(torrent)
-    return [format for format in missing_formats if format in allowed_formats]
+    other_torrents = filter(same_edition, group.torrent)
+    current_formats = set(Format(t.format, t.encoding, None) for t in other_torrents)
+
+    # needed_formats will either return the perfect three, or nothing
+    # thus subtracting what we already have will leave us with what we need
+    # hurray for set operations!
+    needed_formats = torrent.allowed_transcodes.difference(current_formats)
+    return needed_formats
 
 
 def main():
@@ -249,8 +249,17 @@ def main():
             logger.info("API endpoint set to https://orpheus.network/")
 
         tracker = config.get("orpheus", "tracker")
+        if not tracker.endswith('/'):
+            # by popular demand...
+            tracker += '/'
+
         mode = config.get("orpheus", "mode")
+
         endpoint = config.get("orpheus", "api")
+        if not endpoint.endswith('/'):
+            # also by popular demand.
+            endpoint += '/'
+
         source = None
         if config.has_option("orpheus", "source"):
             source = config.get("orpheus", "source")
@@ -399,7 +408,7 @@ def main():
             continue
 
         needed = formats_needed(group, torrent, supported_formats)
-        logger.info("  Formats needed: {0}".format(", ".join(needed)))
+        logger.info("  Formats needed: {0}".format(", ".join(f'{e.name} {e.encoding}' for e in needed)))
 
         if needed:
             # Before proceeding, do the basic tag checks on the source
@@ -444,9 +453,7 @@ def main():
                     os.mkdir(local_torrent_dir)
 
                 try:
-                    transcode_dir = transcode.transcode_release(
-                        flac_dir, local_output_dir, format, max_threads=args.threads
-                    )
+                    transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, torrent, group)
                     new_torrent = transcode.make_torrent(
                         transcode_dir, tmpdir, tracker, api.passkey, source
                     )
@@ -454,9 +461,7 @@ def main():
                     if upload_torrent:
                         logger.info("      Uploading to OPS...")
                         permalink = api.permalink(torrent)
-                        description = create_description(
-                            torrent, flac_dir, format, permalink
-                        )
+                        description = create_description(torrent, flac_dir, format)
                         api.upload(group, torrent, new_torrent, format, description)
                     shutil.copy(new_torrent, local_torrent_dir)
                     logger.info("      Success.")

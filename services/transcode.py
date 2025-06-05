@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
 import errno
-import multiprocessing
 import os
 import os.path as path
 import re
@@ -8,8 +6,11 @@ import shlex
 import shutil
 import signal
 import subprocess
-from typing import Any, Callable, Optional
+
+from typing import Callable, Optional
 import logging
+
+from models.encoder import encoders
 
 LOGGER = logging.getLogger("transcode")
 
@@ -17,25 +18,9 @@ import mutagen.flac
 
 from . import tagging
 
-encoders = {
-    "320": {"enc": "lame", "ext": ".mp3", "opts": "-h -b 320 --ignore-tag-errors"},
-    "V0": {"enc": "lame", "ext": ".mp3", "opts": "-V 0 --vbr-new --ignore-tag-errors"},
-    "V2": {"enc": "lame", "ext": ".mp3", "opts": "-V 2 --vbr-new --ignore-tag-errors"},
-    "FLAC": {"enc": "flac", "ext": ".flac", "opts": "--best"},
-}
-
-
-class TranscodeException(Exception):
-    pass
-
-
-class TranscodeDownmixException(TranscodeException):
-    pass
-
-
-class UnknownSampleRateException(TranscodeException):
-    pass
-
+import models.format
+from models import Torrent, TorrentGroup, Format
+from models.exceptions import TranscodeException, TranscodeDownmixException, UnknownSampleRateException
 
 # In most Unix shells, pipelines only report the return code of the
 # last process. We need to know if any process in the transcode
@@ -158,7 +143,7 @@ def resample_rate(flac_dir):
 
 
 def transcode_commands(
-    output_format,
+    output_format: Format,
     resample: bool,
     needed_sample_rate: Optional[int],
     flac_file,
@@ -175,20 +160,23 @@ def transcode_commands(
     else:
         flac_decoder = "flac -dcs -- {FLAC}"
 
-    lame_encoder = "lame -S {OPTS} - {FILE}"
-    flac_encoder = "flac {OPTS} -o {FILE} -"
-
     transcoding_steps = [flac_decoder]
 
-    if encoders[output_format]["enc"] == "lame":
-        transcoding_steps.append(lame_encoder)
-    elif encoders[output_format]["enc"] == "flac":
-        transcoding_steps.append(flac_encoder)
+    encoder = encoders[output_format.name]
+    match encoder.enc:
+        case "lame":
+            lame_encoder = "lame -S {OPTS} - {FILE}"
+            transcoding_steps.append(lame_encoder)
+        case "flac":
+            flac_encoder = "flac {OPTS} -o {FILE} -"
+            transcoding_steps.append(flac_encoder)
+        case _:
+            raise TranscodeException(f"Encoder out of valid range: {encoder}")
 
     transcode_args = {
         "FLAC": shlex.quote(flac_file),
         "FILE": shlex.quote(transcode_file),
-        "OPTS": encoders[output_format]["opts"],
+        "OPTS": encoder.opts,
         "SAMPLERATE": needed_sample_rate,
     }
 
@@ -200,15 +188,10 @@ def transcode_commands(
         ]
     else:
         commands = map(lambda cmd: cmd.format(**transcode_args), transcoding_steps)
+
     return commands
 
-
-# Pool.map() can't pickle lambdas, so we need a helper function.
-def pool_transcode(args):
-    return transcode(*args)
-
-
-def transcode(flac_file, output_dir, output_format):
+def transcode(flac_file: str, output_dir: str, output_format: Format):
     """
     Transcodes a FLAC file into another format.
     """
@@ -240,7 +223,7 @@ def transcode(flac_file, output_dir, output_format):
     transcode_basename = path.splitext(os.path.basename(flac_file))[0]
     transcode_basename = re.sub(r'[\?<>\\*\|"]', "_", transcode_basename)
     transcode_file = path.join(output_dir, transcode_basename)
-    transcode_file += encoders[output_format]["ext"]
+    transcode_file += encoders[output_format.name].ext
 
     if not os.path.exists(path.dirname(transcode_file)):
         try:
@@ -396,8 +379,9 @@ def get_transcode_dir(flac_dir, output_dir, output_format, resample) -> str:
 def transcode_release(
     flac_dir: str,
     output_dir: str,
-    output_format: str,
-    max_threads: Optional[int] = None,
+    output_format: Format,
+    source_torrent: Torrent,
+    source_torrent_group: TorrentGroup,
 ):
     """
     Transcode a FLAC release into another format.
@@ -410,7 +394,7 @@ def transcode_release(
     resample = needs_resampling(flac_dir)
 
     # check if we need to encode
-    if output_format == "FLAC" and not resample:
+    if output_format is models.format.Flac and not resample:
         # XXX: if output_dir is not the same as flac_dir, this may not
         # do what the user expects.
         if output_dir != os.path.dirname(flac_dir):
@@ -425,7 +409,7 @@ def transcode_release(
     # transcode_dir is a new directory created exclusively for this
     # transcode. Do not change this assumption without considering the
     # consequences!
-    transcode_dir = get_transcode_dir(flac_dir, output_dir, output_format, resample)
+    transcode_dir = source_torrent_group.get_transcode_dirname(source_torrent, output_format)
     logging.info("    " + transcode_dir)
     if not os.path.exists(transcode_dir):
         os.makedirs(transcode_dir)
@@ -448,17 +432,9 @@ def transcode_release(
 
         # copy other files
         allowed_extensions = [
-            ".cue",
-            ".gif",
-            ".jpeg",
-            ".jpg",
-            ".log",
-            ".md5",
-            ".nfo",
-            ".pdf",
-            ".png",
-            ".sfv",
-            ".txt",
+            ".cue", ".gif", ".jpeg", ".jpg",
+            ".log", ".md5", ".nfo", ".pdf",
+            ".png", ".sfv", ".txt",
         ]
         allowed_files = locate(flac_dir, ext_matcher(*allowed_extensions))
         for filename in allowed_files:
@@ -489,27 +465,3 @@ def make_torrent(input_dir, output_dir, tracker, passkey, source):
         command = ["mktorrent", "-p", "-s", source, "-a", tracker_url, "-o", torrent, input_dir]
     subprocess.check_output(command, stderr=subprocess.STDOUT)
     return torrent
-
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("input_dir")
-    parser.add_argument("output_dir")
-    parser.add_argument("output_format", choices=encoders.keys())
-    parser.add_argument(
-        "-j", "--threads", default=multiprocessing.cpu_count(), type=int
-    )
-    args = parser.parse_args()
-
-    transcode_release(
-        os.path.expanduser(args.input_dir),
-        os.path.expanduser(args.output_dir),
-        args.output_format,
-        args.threads,
-    )
-
-
-if __name__ == "__main__":
-    main()

@@ -1,6 +1,5 @@
 import services.transcode as transcode
 
-
 class TestExtMatcher:
     def test_single(self):
         func = transcode.ext_matcher(".flac")
