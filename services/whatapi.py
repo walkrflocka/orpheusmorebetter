@@ -46,6 +46,9 @@ class WhatAPI:
         self.min_sec_between_requests = 5.0
 
         self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'orpheusmorebetter'
+        })
         self._login()
         self.authkey = ""
 
