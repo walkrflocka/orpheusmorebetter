@@ -331,7 +331,7 @@ def main():
     for groupid, torrentid in candidates:
         tg_d = api.request_ajax("torrentgroup", id=groupid)
         # coerce to TorrentGroup - group info is stacked one deep under 'group' key
-        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'])
+        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'], primary_artists=tg_d['musicInfo']['artists'])
         torrent: Torrent = [t for t in group.torrent if t.id == torrentid][0]
 
         release = f"Release found: {group.name} ({group.year})"
