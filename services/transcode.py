@@ -180,7 +180,7 @@ def transcode_commands(
         "SAMPLERATE": needed_sample_rate,
     }
 
-    if output_format == "FLAC" and resample:
+    if output_format.name == "FLAC" and resample:
         commands = [
             "sox {FLAC} -G -b 16 {FILE} rate -v -L {SAMPLERATE} dither".format(
                 **transcode_args
