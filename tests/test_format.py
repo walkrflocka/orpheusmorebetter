@@ -1,10 +1,11 @@
 from models import Format
+from models.encoder import Encoder
 
 class TestFormat:
 
-    f1 = Format('name', 'enc', 'name enc')
-    f2 = Format('name', 'enc', None)
-    f3 = Format('some other name', 'some other enc', None)
+    f1 = Format('name', 'enc', 'name enc', None)
+    f2 = Format('name', 'enc', None, Encoder('lame', '.whacc', 'some str'))
+    f3 = Format('some other name', 'some other enc', None, None)
 
     def test_equality(self):
         assert self.f1 == self.f2

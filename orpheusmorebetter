@@ -21,7 +21,6 @@ from _version import __version__
 
 from services import tagging, transcode, whatapi
 from models import TorrentGroup, Torrent, Format
-from models.encoder import encoders
 
 if sys.version_info < (3, 10, 0): # investigate 311
     raise Exception("Requires Python 3.10.0 or newer")
@@ -43,7 +42,7 @@ def create_description(
         transcode.needs_resampling(flac_dir),
         transcode.resample_rate(flac_dir),
         "input.flac", # think this is just a dummy for the desc
-        "output" + encoders[format.name].ext,
+        "output" + format.encoder.ext, # type: ignore
     )
 
     description = [
@@ -70,7 +69,7 @@ def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: lis
             and t.remasterCatalogueNumber == torrent.remasterCatalogueNumber
 
     other_torrents = filter(same_edition, group.torrent)
-    current_formats = set(Format(t.format, t.encoding, None) for t in other_torrents)
+    current_formats = set(Format(t.format, t.encoding, None, None) for t in other_torrents)
 
     # needed_formats will either return the perfect three, or nothing
     # thus subtracting what we already have will leave us with what we need
@@ -331,7 +330,10 @@ def main():
     for groupid, torrentid in candidates:
         tg_d = api.request_ajax("torrentgroup", id=groupid)
         # coerce to TorrentGroup - group info is stacked one deep under 'group' key
-        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'], primary_artists=tg_d['musicInfo']['artists'])
+        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'], primary_artists=tg_d['group']['musicInfo']['artists'])
+        for t in group.torrent:
+            t.groupId = group.id
+
         torrent: Torrent = [t for t in group.torrent if t.id == torrentid][0]
 
         release = f"Release found: {group.name} ({group.year})"
@@ -460,7 +462,6 @@ def main():
                     logger.info("      Transcode successful, torrent created")
                     if upload_torrent:
                         logger.info("      Uploading to OPS...")
-                        permalink = api.permalink(torrent)
                         description = create_description(torrent, flac_dir, format)
                         api.upload(group, torrent, new_torrent, format, description)
                     shutil.copy(new_torrent, local_torrent_dir)

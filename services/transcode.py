@@ -10,8 +10,6 @@ import subprocess
 from typing import Callable, Optional
 import logging
 
-from models.encoder import encoders
-
 LOGGER = logging.getLogger("transcode")
 
 import mutagen.flac
@@ -31,7 +29,7 @@ from models.exceptions import TranscodeException, TranscodeDownmixException, Unk
 # stderr) of every process in the pipeline, not just the last one. The
 # results are returned as a list of (code, stderr) pairs, one pair per
 # process.
-def run_pipeline(cmds):
+def run_pipeline(cmds: list[str]) -> list[tuple[int, str]]:
     # The Python executable (and its children) ignore SIGPIPE. (See
     # http://bugs.python.org/issue1652) Our subprocesses need to see
     # it.
@@ -60,9 +58,9 @@ def run_pipeline(cmds):
         LOGGER.warning('No commands run.')
         return []
 
-    stdout, stderr = last_proc.communicate()
+    _, stderr = last_proc.communicate()
 
-    results = []
+    results: list[tuple[int, str]] = []
     for cmd, proc in zip(cmds[:-1], procs[:-1]):
         # wait() is OK here, despite use of PIPE above; these procs
         # are finished.
@@ -72,11 +70,11 @@ def run_pipeline(cmds):
     return results
 
 
-def locate(root, match_function: Callable[[str], bool], ignore_dotfiles=True):
+def locate(root: str, match_function: Callable[[str], bool], ignore_dotfiles:bool=True):
     """
     Yields all filenames within the root directory for which match_function returns True.
     """
-    for path, dirs, files in os.walk(root):
+    for path, _, files in os.walk(root):
         for filename in (
             os.path.abspath(os.path.join(path, filename))
             for filename in files
@@ -95,7 +93,7 @@ def ext_matcher(*extensions: str) -> Callable[[str], bool]:
     return lambda f: os.path.splitext(f)[-1].lower() in extensions
 
 
-def is_24bit(flac_dir):
+def is_24bit(flac_dir: str) -> bool:
     """
     Returns True if any FLAC within flac_dir is 24 bit.
     """
@@ -106,7 +104,7 @@ def is_24bit(flac_dir):
     return any(flac.info.bits_per_sample > 16 for flac in flacs)
 
 
-def is_multichannel(flac_dir):
+def is_multichannel(flac_dir: str) -> bool:
     """
     Returns True if any FLAC within flac_dir is multichannel.
     """
@@ -117,7 +115,7 @@ def is_multichannel(flac_dir):
     return any(flac.info.channels > 2 for flac in flacs)
 
 
-def needs_resampling(flac_dir):
+def needs_resampling(flac_dir: str):
     """
     Returns True if any FLAC within flac_dir needs resampling when
     transcoded.
@@ -125,7 +123,7 @@ def needs_resampling(flac_dir):
     return is_24bit(flac_dir)
 
 
-def resample_rate(flac_dir):
+def resample_rate(flac_dir: str) -> int | None:
     """
     Returns the rate to which the release should be resampled.
     """
@@ -133,7 +131,7 @@ def resample_rate(flac_dir):
         mutagen.flac.FLAC(flac_file)
         for flac_file in locate(flac_dir, ext_matcher(".flac"))
     )
-    original_rate = max(flac.info.sample_rate for flac in flacs)
+    original_rate: int = max(flac.info.sample_rate for flac in flacs) # type: ignore
     if original_rate % 44100 == 0:
         return 44100
     elif original_rate % 48000 == 0:
@@ -146,8 +144,8 @@ def transcode_commands(
     output_format: Format,
     resample: bool,
     needed_sample_rate: Optional[int],
-    flac_file,
-    transcode_file,
+    flac_file: str,
+    transcode_file: str,
 ):
     """
     Return a list of transcode steps (one command per list element),
@@ -162,7 +160,10 @@ def transcode_commands(
 
     transcoding_steps = [flac_decoder]
 
-    encoder = encoders[output_format.name]
+    encoder = output_format.encoder
+    if encoder is None:
+        raise TranscodeException(f'Missing encoder data for format {output_format.long_name}')
+
     match encoder.enc:
         case "lame":
             lame_encoder = "lame -S {OPTS} - {FILE}"
@@ -173,7 +174,7 @@ def transcode_commands(
         case _:
             raise TranscodeException(f"Encoder out of valid range: {encoder}")
 
-    transcode_args = {
+    transcode_args: dict[str, str | int | None] = {
         "FLAC": shlex.quote(flac_file),
         "FILE": shlex.quote(transcode_file),
         "OPTS": encoder.opts,
@@ -191,15 +192,15 @@ def transcode_commands(
 
     return commands
 
-def transcode(flac_file: str, output_dir: str, output_format: Format):
+def transcode(flac_file: str, output_dir: str, output_format: Format) -> str:
     """
     Transcodes a FLAC file into another format.
     """
     # gather metadata from the flac file
     flac_info = mutagen.flac.FLAC(flac_file)
-    sample_rate = flac_info.info.sample_rate
-    bits_per_sample = flac_info.info.bits_per_sample
-    resample: bool = sample_rate > 48000 or bits_per_sample > 16
+    sample_rate: int = flac_info.info.sample_rate # type: ignore
+    bits_per_sample: int = flac_info.info.bits_per_sample # type: ignore
+    resample: bool = sample_rate > 48000 or bits_per_sample > 16 # type: ignore
 
     # if resampling isn't needed then needed_sample_rate will not be used.
     needed_sample_rate = None
@@ -223,7 +224,12 @@ def transcode(flac_file: str, output_dir: str, output_format: Format):
     transcode_basename = path.splitext(os.path.basename(flac_file))[0]
     transcode_basename = re.sub(r'[\?<>\\*\|"]', "_", transcode_basename)
     transcode_file = path.join(output_dir, transcode_basename)
-    transcode_file += encoders[output_format.name].ext
+
+
+    if output_format.encoder is not None:
+        transcode_file += output_format.encoder.ext
+    else:
+        raise TranscodeException(f'Missing encoder data for format {output_format.long_name}')
 
     if not os.path.exists(path.dirname(transcode_file)):
         try:
@@ -270,7 +276,7 @@ def transcode(flac_file: str, output_dir: str, output_format: Format):
     return transcode_file
 
 
-def get_transcode_dir(flac_dir, output_dir, output_format, resample) -> str:
+def get_transcode_dir(flac_dir: str, output_dir: str, output_format: str, resample: bool) -> str:
     full_flac_dir = flac_dir
     transcode_dir = path.basename(flac_dir)
     flac_dir = transcode_dir
@@ -454,7 +460,7 @@ def transcode_release(
         raise
 
 
-def make_torrent(input_dir, output_dir, tracker, passkey, source):
+def make_torrent(input_dir: str, output_dir: str, tracker: str, passkey: str, source: str | None) -> str:
     torrent = os.path.join(output_dir, path.basename(input_dir)) + ".torrent"
     if not path.exists(path.dirname(torrent)):
         os.makedirs(path.dirname(torrent))
