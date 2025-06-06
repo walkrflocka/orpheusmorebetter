@@ -26,4 +26,4 @@ MP3_V2 = Format("MP3", "V2 (VBR)", "MP3 V2",
 MP3_320 = Format("MP3", "320", 'MP3 320',
                  Encoder(enc = "lame", ext = ".mp3", opts = "-h -b 320 --ignore-tag-errors"))
 
-perfect_three = set([Flac, MP3_320, MP3_320])
+perfect_three = set([Flac, MP3_320, MP3_V0])
