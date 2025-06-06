@@ -436,7 +436,7 @@ def main():
 
         for format in needed:
             if os.path.exists(flac_dir):
-                logger.info("    Creating format {0}...".format(format))
+                logger.info("    Creating format {0}...".format(format.long_name))
                 tmpdir = tempfile.mkdtemp()
 
                 local_output_dir: str = config.get(

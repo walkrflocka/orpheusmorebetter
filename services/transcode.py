@@ -400,7 +400,7 @@ def transcode_release(
     resample = needs_resampling(flac_dir)
 
     # check if we need to encode
-    if output_format is models.format.Flac and not resample:
+    if output_format.name == 'FLAC' and not resample:
         # XXX: if output_dir is not the same as flac_dir, this may not
         # do what the user expects.
         if output_dir != os.path.dirname(flac_dir):
@@ -415,7 +415,7 @@ def transcode_release(
     # transcode_dir is a new directory created exclusively for this
     # transcode. Do not change this assumption without considering the
     # consequences!
-    transcode_dir = source_torrent_group.get_transcode_dirname(source_torrent, output_format)
+    transcode_dir = os.path.join(output_dir, source_torrent_group.get_transcode_dirname(source_torrent, output_format))
     logging.info("    " + transcode_dir)
     if not os.path.exists(transcode_dir):
         os.makedirs(transcode_dir)
