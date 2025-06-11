@@ -149,7 +149,7 @@ def main():
 
     if args.debug is not None and args.debug is True:
         level = logging.DEBUG
-        print('Entering into debug mode')
+        logging.debug('Entering into debug mode')
     else:
         level = logging.INFO
 
@@ -274,7 +274,7 @@ def main():
             seen = pickle.load(f)
     except OSError:
         # If the cache file doesn't exist, create a new one
-        print("Cache file not found, creating a new one.")
+        logger.info("Cache file not found, creating a new one.")
         with open(args.cache, "wb") as f:
             seen = set()
             pickle.dump(set(), f)
@@ -376,6 +376,10 @@ def main():
             logger.warning(f'Flac dir unset for release {torrentid}')
             continue
 
+        cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
+        if (flac_dir != cleaned_flac_dir):
+            logger.warning(f'This OPH directory has hidden characters. You may be able to re-upload this manually and trump the original.')
+
         if int(do_24_bit):
             try:
                 if (
@@ -393,7 +397,7 @@ def main():
                         confirmation = input("Mark release as 24bit lossless? y/n: ")
                         if confirmation != "y":
                             continue
-                    logger.info("Marking release as 24bit lossless.")
+                    logger.info("  Marking release as 24bit lossless.")
                     api.set_24bit(torrent)
                     group = api.request_ajax("torrentgroup", id=groupid)
                     torrent = [t for t in group["torrents"] if t["id"] == torrentid][0]
