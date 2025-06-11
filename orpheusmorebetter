@@ -399,8 +399,8 @@ def main():
                             continue
                     logger.info("  Marking release as 24bit lossless.")
                     api.set_24bit(torrent)
-                    this_group = api.request_ajax("torrentgroup", id=groupid)
-                    this_torrent = [t for t in this_group["torrents"] if t["id"] == torrentid][0]
+                    group = api.request_ajax("torrentgroup", id=groupid)
+                    torrent = [t for t in group["torrents"] if t["id"] == torrentid][0]
             except Exception as e:
                 logger.error(
                     "Error: can't edit 24-bit torrent - skipping: {0}".format(e)
