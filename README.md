@@ -3,9 +3,7 @@ Introduction
 
 `orpheusmorebetter` is a script designed to automatically upload missing album transcodes to Orpheus.
 
-This software is able to scan through every FLAC you, the user, have ever
-downloaded or uploaded, determine which formats are missing, transcode
-the source FLAC to those formats, and upload the resulting files to Orpheus -- automatically.
+This software is able to scan through every FLAC you, the user, have ever downloaded or uploaded, determine which formats are missing, transcode the source FLAC to those formats, and upload the resulting files to Orpheus -- automatically.
 
 Installation
 ------------
@@ -33,8 +31,7 @@ apt install mktorrent flac lame sox
 sudo pacman -S mktorrent flac lame sox
 ```
 
-If you are on a seedbox and you lack the privilages to install packages,
-you could contact your provider to have these packages installed.
+If you are on a seedbox and you lack the privilages to install packages, you could contact your provider to have these packages installed.
 
 At this point you may execute the following command:
 
@@ -48,13 +45,13 @@ Configuration
 Open the file `~/.orpheusmorebetter/config` in a text editor. You will see something like this:
 
 ```ini
-[whatcd]
+[orpheus]
 username =
 password =
 data_dir =
 output_dir =
 torrent_dir =
-formats = flac, v0, 320, v2
+formats = flac, v0, 320
 media = sacd, soundboard, web, dvd, cd, dat, vinyl, blu-ray
 24bit_behaviour = 0
 tracker = https://home.opsfet.ch/
@@ -63,30 +60,24 @@ mode = both
 source = OPS
 ```
 
-If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is the exact same config format - thus they are all compatible.
+If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is an extremely similar config format.
 
 `username` and `password` are your Orpheus login credentials.
 
 `data_dir` is the directory where your source FLACs are stored.
 
-`output_dir` is the directory where your transcodes will be stored after creation. If
-the value is blank, `data_dir` will be used. You may also specify
-per format values such as `output_dir_320` or `output_dir_v0`, and `orpheusmorebetter` will redirect the outputs to the associated directory.
+`output_dir` is the directory where your transcodes will be stored after creation. If the value is blank, `data_dir` will be used. You may also specify per format values such as `output_dir_320` or `output_dir_v0`, and `orpheusmorebetter` will redirect the outputs to the associated directory.
 
-`torrent_dir` is the directory where the torrents associated with your transcodes will be created (i.e.,
-your watch directory). Same per format settings as `output_dir` apply.
+`torrent_dir` is the directory where the torrents associated with your transcodes will be created (i.e., your watch directory). Same per format settings as `output_dir` apply.
 
 `formats` is a list of formats that you'd like to support. (If you don't want to upload V2, or any other specific format, just remove it from this list)
 
-`media` is a list of lossless media types you want to consider for
-transcoding. The default value is all What.CD lossless formats, but if
-you want to transcode only CD and vinyl media, for example, you would
-set this to `cd, vinyl`.
+`media` is a list of lossless media types you want to consider for transcoding. The default value is all What.CD lossless formats, but if you want to transcode only CD and vinyl media, for example, you would set this to `cd, vinyl`.
 
-`24bit_behaviour` defines what happens when the program encounters a FLAC
-that it thinks is 24bits. If it is set to '2', every FLAC that has a bits-
-per-sample property of 24 will be silently re-categorized. If it set to '1',
-a prompt will appear. The default is '0' which ignores these occurrences.
+`24bit_behaviour` defines what happens when the program encounters a FLAC that it thinks is 24 bits. Options:
+ - `2` - Every FLAC that has a bits-per-sample property of 24 will be silently re-categorized. 
+ - `1` - A prompt will appear. 
+ - `0` - Ignore hese occurrences entirely. *This is the default.*
 
 `tracker` is the base announce url to use in the torrent files.
 
@@ -101,13 +92,12 @@ a prompt will appear. The default is '0' which ignores these occurrences.
  - `all`      - All transcode sources above.
  - `none`     - Disable scraping.
 
- `source` is the source flag to add to created torrents. Leave blank if you are
- running `mktorrent` 1.0.
+ `source` is the source flag to add to created torrents. Leave blank if you are running `mktorrent` 1.0.
 
 You should end up with something like this:
 
 ```
-[whatcd]
+[orpheus]
 username = RequestBunny
 password = clapton
 data_dir = /srv/downloads
@@ -161,25 +151,18 @@ optional arguments:
 Examples
 --------
 
-To transcode and upload every snatch you've ever downloaded along with all
-your uploads (this may take a while):
+To transcode and upload every snatch you've ever downloaded along with all your uploads (this may take a while):
 
 ```bash
 orpheusmorebetter
 ```
 
-To transcode and upload a specific release (provided you have already
-downloaded the FLAC and it is located in your `data_dir`):
+To transcode and upload a specific release (provided you have already downloaded the FLAC and it is located in your `data_dir`):
 
 ```bash
 orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000
 ```
 
-Note that if you specify a particular release(s), orpheusmorebetter will
-ignore your configuration's media types and attempt to transcode the
-releases you have specified regardless of their media type. (so long as
-they are lossless types)
+Note that if you specify a particular release(s), orpheusmorebetter will ignore your configuration's media types and attempt to transcode the releases you have specified regardless of their media type. (so long as they are lossless types)
 
-Your first time running orpheusmorebetter might take a while, but after it has
-successfully checked all eligible files it will go faster upon each
-consecutive run, as outputs are cached.
+Your first time running orpheusmorebetter might take a while, but after it has successfully checked all eligible files it will go faster upon each consecutive run, as outputs are cached.
