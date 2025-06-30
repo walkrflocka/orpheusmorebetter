@@ -187,6 +187,7 @@ def main():
         config.set("orpheus", "formats", "flac, v0, 320")
         config.set("orpheus", "media", ", ".join(whatapi.lossless_media))
         config.set("orpheus", "24bit_behaviour", "0")
+        config.set("orpheus", "error_behaviour", "0")
         config.set("orpheus", "tracker", "https://home.opsfet.ch/")
         config.set("orpheus", "mode", "both")
         config.set("orpheus", "api", "https://orpheus.network/")
@@ -246,6 +247,12 @@ def main():
             config.set("orpheus", "api", "https://orpheus.network/")
             config.write(open(args.config, "w"))
             logger.info("API endpoint set to https://orpheus.network/")
+        if not config.has_option("orpheus", "error_behaviour"):
+            config.set("orpheus", "error_behaviour", "0")
+            config.write(open(args.config, "w"))
+            logger.info("Error behavior set to cache errors with all other torrents")
+        
+        dont_cache_errors = config.get("orpheus", "error_behaviour")
 
         tracker = config.get("orpheus", "tracker")
         if not tracker.endswith('/'):
@@ -338,6 +345,7 @@ def main():
 
         release = f"Release found: {group.name} ({group.year})"
         releaseurl = f"  Release URL: {api.release_url(group, torrent)}"
+        successful_torrent = False # start as false and only mark true if it's fully successful
 
         logger.info("")
         logger.info(release)
@@ -438,7 +446,10 @@ def main():
             if broken_tags:
                 continue
 
+        successful_torrent = True # Set to True at this point, and see if the formats fail it.
+
         for format in needed:
+            successful_format = False
             if os.path.exists(flac_dir):
                 logger.info("    Creating format {0}...".format(format.long_name))
                 tmpdir = tempfile.mkdtemp()
@@ -470,6 +481,7 @@ def main():
                         api.upload(group, torrent, new_torrent, format, description)
                     shutil.copy(new_torrent, local_torrent_dir)
                     logger.info("      Success.")
+                    successful_format = True
                     if args.single:
                         break
                 except Exception as e:
@@ -477,11 +489,17 @@ def main():
                     traceback.print_exc()
                 finally:
                     shutil.rmtree(tmpdir)
+                    if successful_format == False:
+                        successful_torrent = False # If any format conversion fails, mark torrent as failed.
             else:
                 logger.warning("    Path not found - skipping: {0}".format(flac_dir))
+                successful_torrent = False # Mark torrent as failed.
                 break
-        seen.add(str(torrentid))
-        pickle.dump(seen, open(args.cache, "wb"))
+
+        if successful_torrent == True or dont_cache_errors != "1": # If the torrent and formats were all successful OR if not, but we're caching errors anyway, then write it to cache
+            logger.debug("Writing to cache")
+            seen.add(str(torrentid))
+            pickle.dump(seen, open(args.cache, "wb"))
     logger.info("Process complete. Exiting.")
 
 

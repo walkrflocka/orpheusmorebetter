@@ -58,6 +58,8 @@ tracker = https://home.opsfet.ch/
 api = https://orpheus.network/
 mode = both
 source = OPS
+error_behaviour = 0
+
 ```
 
 If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is an extremely similar config format.
@@ -94,6 +96,10 @@ If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is an extre
 
  `source` is the source flag to add to created torrents. Leave blank if you are running `mktorrent` 1.0.
 
+'error_behaviour' defines what happens when the program encounters an issue with the torrent (bad characters in the folder name, can't change 24 bit listing, encoding fails, etc) Options:
+ - '0' - Torrents with issues will be written to the cache just like "successful" torrents. *This is the default.*
+ - '1' - Torrents with issues will NOT be written to the cache. This allows you to try them again subsequent times without deleting the entire cache and starting over.
+
 You should end up with something like this:
 
 ```
@@ -110,6 +116,7 @@ tracker = https://home.opsfet.ch/
 api = https://orpheus.network
 mode = both
 source = OPS
+error_behaviour = 0
 ```
 
 Usage
