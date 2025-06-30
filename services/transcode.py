@@ -222,7 +222,7 @@ def transcode(flac_file: str, output_dir: str, output_format: Format) -> str:
 
     # determine the new filename
     transcode_basename = path.splitext(os.path.basename(flac_file))[0]
-    transcode_basename = re.sub(r'[\?<>\\*\|"]', "_", transcode_basename)
+    transcode_basename = re.sub(r'[\?<>\\*\|":]', "_", transcode_basename)
     transcode_file = path.join(output_dir, transcode_basename)
 
 

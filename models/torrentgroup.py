@@ -5,6 +5,7 @@ from .artist import Artist
 from .format import Format
 
 import copy
+import re
 
 class TorrentGroup(BaseModel):
     model_config = ConfigDict(validate_by_alias=True, validate_by_name=True)
@@ -51,5 +52,6 @@ class TorrentGroup(BaseModel):
 
         if source_torrent.groupId != self.id:
             raise ValueError(f"Provided source torrent group ID does not match group's ID: {source_torrent.groupId} != {self.id}")
-
-        return f"{self.formatted_artist_string} - {self.year} - {self.name} {source_torrent.formatted_media_info} [{target_format.long_name}]"
+        transcode_folder = f"{self.formatted_artist_string} - {self.year} - {self.name} {source_torrent.formatted_media_info} [{target_format.long_name}]"
+        transcode_folder = re.sub(r'[\?<>\\*\|":\/]', "_", transcode_folder) # Removes the following from folder names and replaces with underscore: ?<>\*|":/ 
+        return transcode_folder
