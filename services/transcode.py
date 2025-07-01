@@ -434,7 +434,11 @@ def transcode_release(
         ]
         for filename, output_dir, output_format in arg_list:
             transcode(filename, output_dir, output_format)
-            LOGGER.info(f"Processing file {filename}")
+            try:
+                print_filename = filename.rsplit("/",1)[1]
+            except ValueError:
+                print_filename = filename
+            LOGGER.info(f"      Processing: {print_filename}")
 
         # copy other files
         allowed_extensions = [

@@ -378,7 +378,7 @@ def main():
 
         cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
         if (flac_dir != cleaned_flac_dir):
-            logger.warning(f'This OPH directory has hidden characters. You may be able to re-upload this manually and trump the original.')
+            logger.warning(f'This OPH folder name has hidden characters. You may be able to re-upload this manually and trump the original.')
 
         if int(do_24_bit):
             try:
@@ -478,7 +478,7 @@ def main():
                 finally:
                     shutil.rmtree(tmpdir)
             else:
-                logger.warning("    Path not found - skipping: {0}".format(flac_dir))
+                logger.error("    Path not found - skipping: {0}".format(flac_dir))
                 break
         seen.add(str(torrentid))
         pickle.dump(seen, open(args.cache, "wb"))
