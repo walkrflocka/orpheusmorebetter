@@ -3,6 +3,7 @@ import re
 import time
 import requests
 import logging
+import re
 from bs4 import BeautifulSoup, Tag
 
 from typing import Optional, List, Dict, Any, Set, Union, Literal
@@ -89,9 +90,37 @@ class WhatAPI:
                 "login": "Log in"
             },
         )
+
+        # Handle 403 errors specifically - probably IP banned
+        # Could be due to too many failed login attempts?
+        if r.status_code == 403:
+            # Try to extract additional details from the response
+            match = re.search(r"Additional details:?\s*([^<\n]+)", r.text)
+            if match:
+                error_message = match.group(1).strip()
+                LOGGER.error(f"Login failed with 403 error: {error_message}")
+                raise LoginException(f"403 Forbidden: {error_message}")
+            else:
+                LOGGER.error("Login failed with 403 error: no additional details available")
+                raise LoginException("403 Forbidden")
+
+        # For other HTTP errors
         r.raise_for_status()
+
+        # If 200 OK, check for login warnings before continuing. e.g. old 2FA code
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, features="lxml")
+            warning_div = soup.find("div", class_="warning-login")
+            if warning_div:
+                # Extract & show warning message
+                warning_text = warning_div.get_text(separator=" ", strip=True)
+                warning_text = re.sub(r'\s+', ' ', warning_text)
+                warning_text = warning_text.replace(".", ".\n")
+                LOGGER.error(f"Login failed with warning: \n{warning_text}")
+                raise LoginException(f"Login failed: {warning_text}")
+
         assert r.cookies is not None
-        LOGGER.info(f"Orpheus session opened successfully.")
+        LOGGER.info("Orpheus session opened successfully.")
 
     def request_ajax(
         self,
