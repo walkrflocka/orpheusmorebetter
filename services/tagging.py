@@ -79,7 +79,7 @@ def scrub_tag(name, value):
     return scrubbed_value
 
 
-def check_tags(filename, check_tracknumber_format=True):
+def check_tags(filename: str, check_tracknumber_format: bool = True):
     """Verify that the file has the required What.CD tags.
 
     Returns (True, None) if OK, (False, msg) if a tag is missing or
@@ -104,7 +104,7 @@ def check_tags(filename, check_tracknumber_format=True):
     return (True, None)
 
 
-def copy_tags(flac_file, transcode_file):
+def copy_tags(flac_file: str, transcode_file: str):
     flac_info = mutagen.flac.FLAC(flac_file)
     transcode_info = None
     valid_key_fn = None

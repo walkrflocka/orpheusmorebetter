@@ -17,11 +17,13 @@ from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 from typing import List
 
-from src import tagging, transcode, whatapi
 from _version import __version__
 
-if sys.version_info < (3, 6, 0):
-    raise Exception("Requires Python 3.6.0 or newer")
+from services import tagging, transcode, whatapi
+from models import TorrentGroup, Torrent, Format
+
+if sys.version_info < (3, 10, 0): # investigate 311
+    raise Exception("Requires Python 3.10.0 or newer")
 
 
 def banner():
@@ -32,19 +34,19 @@ def banner():
 
 
 def create_description(
-    torrent: str, flac_dir: str, format: str, permalink: str
+    torrent: Torrent, flac_dir: str, format: Format
 ) -> List[str]:
     # Create an example command to document the transcode process.
     cmds = transcode.transcode_commands(
         format,
         transcode.needs_resampling(flac_dir),
         transcode.resample_rate(flac_dir),
-        "input.flac",
-        "output" + transcode.encoders[format]["ext"],
+        "input.flac", # think this is just a dummy for the desc
+        "output" + format.encoder.ext, # type: ignore
     )
 
     description = [
-        "Transcode of [url={0}]{0}[/url]".format(permalink),
+        f"Transcode of [pl=noartist]{torrent.id}[/pl]",
         "",
         "Transcode process:",
         "",
@@ -55,31 +57,25 @@ def create_description(
     return description
 
 
-def formats_needed(group, torrent, supported_formats):
+def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: list[str]):
     if "" in supported_formats:
         supported_formats.remove("")
 
-    def same_group(t):
-        fields = [
-            "media",
-            "remasterYear",
-            "remasterTitle",
-            "remasterRecordLabel",
-            "remasterCatalogueNumber",
-        ]
-        return all([t[f] == torrent[f] for f in fields])
+    def same_edition(t: Torrent):
+        return t.media == torrent.media \
+            and t.remasterYear == torrent.remasterYear \
+            and t.remasterTitle == torrent.remasterTitle \
+            and t.remasterRecordLabel == torrent.remasterRecordLabel \
+            and t.remasterCatalogueNumber == torrent.remasterCatalogueNumber
 
-    others = filter(same_group, group["torrents"])
-    current_formats = set((t["format"], t["encoding"]) for t in others)
-    missing_formats = [
-        format
-        for format, details in [
-            (f, whatapi.perfect_three[f]) for f in supported_formats
-        ]
-        if (details["format"], details["encoding"]) not in current_formats
-    ]
-    allowed_formats = whatapi.allowed_transcodes(torrent)
-    return [format for format in missing_formats if format in allowed_formats]
+    other_torrents = filter(same_edition, group.torrent)
+    current_formats = set(Format(t.format, t.encoding, None, None) for t in other_torrents)
+
+    # needed_formats will either return the perfect three, or nothing
+    # thus subtracting what we already have will leave us with what we need
+    # hurray for set operations!
+    needed_formats = torrent.allowed_transcodes.difference(current_formats)
+    return needed_formats
 
 
 def main():
@@ -153,7 +149,7 @@ def main():
 
     if args.debug is not None and args.debug is True:
         level = logging.DEBUG
-        print('Entering into debug mode')
+        logging.debug('Entering into debug mode')
     else:
         level = logging.INFO
 
@@ -168,7 +164,6 @@ def main():
 
     logger = logging.getLogger("main")
 
-    logger.info("-----------------------------------------------------")
     logger.info("Starting Up OrpheusMoreBetter...")
 
     # Work with config files
@@ -247,13 +242,22 @@ def main():
             config.write(open(args.config, "w"))
             logger.info("Candidate mode set to both")
         if not config.has_option("orpheus", "api"):
-            config.set("orpheus", "api", "https://orpheus.network")
+            config.set("orpheus", "api", "https://orpheus.network/")
             config.write(open(args.config, "w"))
-            logger.info("API endpoint set to https://orpheus.network")
+            logger.info("API endpoint set to https://orpheus.network/")
 
         tracker = config.get("orpheus", "tracker")
+        if not tracker.endswith('/'):
+            # by popular demand...
+            tracker += '/'
+
         mode = config.get("orpheus", "mode")
+
         endpoint = config.get("orpheus", "api")
+        if not endpoint.endswith('/'):
+            # also by popular demand.
+            endpoint += '/'
+
         source = None
         if config.has_option("orpheus", "source"):
             source = config.get("orpheus", "source")
@@ -262,15 +266,16 @@ def main():
 
     logger.info("Logging in to Orpheus Network...")
     api = whatapi.WhatAPI(username, password, endpoint, args.totp)
+    seen: set[str]
 
     try:
         with open(args.cache, "rb") as f:
-            seen: set = pickle.load(f)
+            seen = pickle.load(f)
     except OSError:
         # If the cache file doesn't exist, create a new one
-        print("Cache file not found, creating a new one.")
+        logger.info("Cache file not found, creating a new one.")
         with open(args.cache, "wb") as f:
-            seen: set = set()
+            seen = set()
             pickle.dump(set(), f)
 
     if args.skip:
@@ -285,6 +290,7 @@ def main():
         return
 
     logger.info("Searching for transcode candidates...")
+    candidates = None
     if args.release_urls:
         if len(args.release_urls) == 1 and os.path.isfile(args.release_urls[0]):
             logger.info(
@@ -316,34 +322,39 @@ def main():
         else:
             candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
 
-    for groupid, torrentid in candidates:
-        group = api.request_ajax("torrentgroup", id=groupid)
-        torrent = [t for t in group["torrents"] if t["id"] == torrentid][0]
+    if candidates is None:
+        logger.info('No candidates found, ending program.')
+        return # crashout
 
-        release = "Release found: {0} ({1})".format(
-            html.unescape(group["group"]["name"]), group["group"]["year"]
-        )
-        releaseurl = "  Release URL: {0}".format(api.release_url(group, torrent))
+    for groupid, torrentid in candidates:
+        tg_d = api.request_ajax("torrentgroup", id=groupid)
+        # coerce to TorrentGroup - group info is stacked one deep under 'group' key
+        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'], primary_artists=tg_d['group']['musicInfo']['artists'])
+        for t in group.torrent:
+            t.groupId = group.id
+
+        torrent: Torrent = [t for t in group.torrent if t.id == torrentid][0]
+
+        release = f"Release found: {group.name} ({group.year})"
+        releaseurl = f"  Release URL: {api.release_url(group, torrent)}"
 
         logger.info("")
         logger.info(release)
         logger.info(releaseurl)
 
-        if torrent["filePath"] is None:
+        flac_dir = None
+        flac_file = None
+
+        if torrent.filePath is None:
             for d in data_dir:
                 flac_file = os.path.join(
-                    d, html.unescape(torrent["fileList"]).split("{{{")[0]
+                    d, html.unescape(torrent.fileList).split("{{{")[0]
                 )
 
                 if not os.path.exists(flac_file):
                     continue
 
-                flac_dir = os.path.join(
-                    d,
-                    "{0} ({1}) [FLAC]".format(
-                        html.unescape(group["group"]["name"]), group["group"]["year"]
-                    ),
-                )
+                flac_dir = os.path.join(d, f"{group.name} ({group.year}) [FLAC]")
 
                 if not os.path.exists(flac_dir):
                     os.makedirs(flac_dir)
@@ -351,20 +362,28 @@ def main():
                 shutil.copy(flac_file, flac_dir)
                 break
 
-            if not os.path.exists(flac_file):
-                logger.warning("Path not found - skipping: {0}".format(flac_file))
+            if flac_file is not None and not os.path.exists(flac_file):
+                logger.warning(f"Path not found - skipping: {flac_file}")
                 continue
         else:
             for d in data_dir:
-                flac_dir = os.path.join(d, html.unescape(torrent["filePath"]))
+                flac_dir = os.path.join(d, html.unescape(torrent.filePath))
                 if os.path.exists(flac_dir):
                     break
+
+        if flac_dir is None:
+            logger.warning(f'Flac dir unset for release {torrentid}')
+            continue
+
+        cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
+        if (flac_dir != cleaned_flac_dir):
+            logger.warning(f'This OPH folder name has hidden characters. You may be able to re-upload this manually and trump the original.')
 
         if int(do_24_bit):
             try:
                 if (
                     transcode.is_24bit(flac_dir)
-                    and torrent["encoding"] != "24bit Lossless"
+                    and torrent.encoding != "24bit Lossless"
                 ):
                     # A lot of people are uploading FLACs from Bandcamp without realizing
                     # that they're actually 24 bit files (usually 24/44.1). Since we know for
@@ -377,7 +396,7 @@ def main():
                         confirmation = input("Mark release as 24bit lossless? y/n: ")
                         if confirmation != "y":
                             continue
-                    logger.info("Marking release as 24bit lossless.")
+                    logger.info("  Marking release as 24bit lossless.")
                     api.set_24bit(torrent)
                     group = api.request_ajax("torrentgroup", id=groupid)
                     torrent = [t for t in group["torrents"] if t["id"] == torrentid][0]
@@ -394,7 +413,7 @@ def main():
             continue
 
         needed = formats_needed(group, torrent, supported_formats)
-        logger.info("  Formats needed: {0}".format(", ".join(needed)))
+        logger.info("  Formats needed: {0}".format(", ".join(f'{e.name} {e.encoding}' for e in needed)))
 
         if needed:
             # Before proceeding, do the basic tag checks on the source
@@ -420,7 +439,7 @@ def main():
 
         for format in needed:
             if os.path.exists(flac_dir):
-                logger.info("    Creating format {0}...".format(format))
+                logger.info("    Creating format {0}...".format(format.long_name))
                 tmpdir = tempfile.mkdtemp()
 
                 local_output_dir: str = config.get(
@@ -439,19 +458,14 @@ def main():
                     os.mkdir(local_torrent_dir)
 
                 try:
-                    transcode_dir = transcode.transcode_release(
-                        flac_dir, local_output_dir, format, max_threads=args.threads
-                    )
+                    transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, torrent, group)
                     new_torrent = transcode.make_torrent(
                         transcode_dir, tmpdir, tracker, api.passkey, source
                     )
                     logger.info("      Transcode successful, torrent created")
                     if upload_torrent:
                         logger.info("      Uploading to OPS...")
-                        permalink = api.permalink(torrent)
-                        description = create_description(
-                            torrent, flac_dir, format, permalink
-                        )
+                        description = create_description(torrent, flac_dir, format)
                         api.upload(group, torrent, new_torrent, format, description)
                     shutil.copy(new_torrent, local_torrent_dir)
                     logger.info("      Success.")
@@ -463,7 +477,7 @@ def main():
                 finally:
                     shutil.rmtree(tmpdir)
             else:
-                logger.warning("    Path not found - skipping: {0}".format(flac_dir))
+                logger.error("    Path not found - skipping: {0}".format(flac_dir))
                 break
         seen.add(str(torrentid))
         pickle.dump(seen, open(args.cache, "wb"))
