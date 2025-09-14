@@ -14,21 +14,40 @@ class TorrentGroup(BaseModel):
     name: str = Field(alias = 'groupName')
     year: int = Field(alias = 'groupYear')
     torrent: list[Torrent]
-    primary_artists: list[Artist]
+    
+    composers: list[Artist]
+    dj: list[Artist]
+    artists: list[Artist]
+    with_artists: list[Artist]
+    conductor: list[Artist]
+    remixed_by: list[Artist]
+    producer: list[Artist]
 
     @property
     def formatted_artist_string(self) -> str:
         # prevent mutation of the class copy
-        artists = copy.deepcopy(self.primary_artists)
-        match len(artists):
+        primary_artists: list[Artist] = copy.deepcopy(
+            # python treats empty lists as false, so by stacking the "artist categories" in an /or/ statement
+            # we in effect get to "pick the first non-empty category, or fall through to Unknown"
+            self.composers or self.dj or self.artists or [Artist(id=-1, name="Unknown"),]
+        )
+        
+        match len(primary_artists):
             case 0: raise ValueError('Torrent group has no artists!')
-            case 1: return artists[0].name
-            case 2: return f'{artists[0].name} & {artists[1].name}'
+            case 1: return primary_artists[0].name
+            case 2: return f'{primary_artists[0].name} & {primary_artists[1].name}'
             case _:
                 # jam an and into the last artist's name
-                artists[-1].name = '& ' + artists[-1].name
+                # (this is why we need the deepcopy, here!)
+                primary_artists[-1].name = '& ' + primary_artists[-1].name
                 # in this house we believe in the oxford comma
-                return ', '.join(map(lambda x: x.name, artists))
+                out = ', '.join(map(lambda x: x.name, primary_artists))
+
+                if len(out) > 50:
+                    # simple kludge to prevent overflowing names
+                    return "Various Artists"
+                else:
+                    return out
 
     def get_transcode_dirname(
             self,
@@ -52,6 +71,6 @@ class TorrentGroup(BaseModel):
 
         if source_torrent.groupId != self.id:
             raise ValueError(f"Provided source torrent group ID does not match group's ID: {source_torrent.groupId} != {self.id}")
-        transcode_folder = f"{self.formatted_artist_string} - {self.year} - {self.name} {source_torrent.formatted_media_info} [{target_format.long_name}]"
+        transcode_folder = f"{self.formatted_artist_string} - {self.year} - {self.name[:min(100, len(self.name))]} {source_torrent.formatted_media_info} [{target_format.long_name}]"
         transcode_folder = re.sub(r'[\?<>\\*\|":\/]', "_", transcode_folder) # Removes the following from folder names and replaces with underscore: ?<>\*|":/ 
         return transcode_folder
