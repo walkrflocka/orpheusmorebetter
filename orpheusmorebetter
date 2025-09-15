@@ -339,7 +339,7 @@ def main():
         group = TorrentGroup(
             **tg_d['group'], 
             torrent=tg_d['torrents'], 
-            composers=artist_info["composer"],
+            composers=artist_info["composers"],
             dj=artist_info["dj"],
             artists=artist_info['artists'],
             with_artists=artist_info["with"],
