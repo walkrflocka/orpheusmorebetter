@@ -26,6 +26,9 @@ lossless_media = set(media_search_map.keys())
 
 LOGGER = logging.getLogger("api")
 
+class LoginException(Exception):
+    pass
+    
 class WhatAPI:
     def __init__(
         self,
@@ -90,7 +93,7 @@ class WhatAPI:
         # For other HTTP errors
         r.raise_for_status()
 
-        # If 200 OK, check for login warnings before continuing. e.g. old 2FA code
+        # If 200 OK, check for login warnings before continuing. e.g. incorrect 2FA code
         if r.status_code == 200:
             soup = BeautifulSoup(r.text, features="lxml")
             warning_div = soup.find("div", class_="warning-login")
