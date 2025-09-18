@@ -376,8 +376,8 @@ def main():
             continue
 
         cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
-        if (flac_dir != cleaned_flac_dir):
-            logger.warning(f'This OPH folder name has hidden characters. You may be able to re-upload this manually and trump the original.')
+        if flac_dir != cleaned_flac_dir and not(os.path.exists(flac_dir)):
+            flac_dir = cleaned_flac_dir
 
         if int(do_24_bit):
             try:
