@@ -17,6 +17,7 @@ import html
 from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 from typing import List
+import warnings
 
 from _version import __version__
 
@@ -114,7 +115,7 @@ def main():
         "--threads",
         type=int,
         help="number of threads to use when transcoding",
-        default=max(cpu_count() - 1, 1),
+        default=1 #max(cpu_count() - 1, 1),
     )
     parser.add_argument(
         "--config",
@@ -162,6 +163,10 @@ def main():
 
     args = parser.parse_args()
 
+    if args.threads != 1:
+        warnings.warn("Multithreading is temporarily disabled in this version. Defaulting to single-thread behavior.")
+        args.threads = 1
+
     if args.debug is not None and args.debug is True:
         level = logging.DEBUG
         logging.debug('Entering into debug mode')
@@ -181,7 +186,6 @@ def main():
 
     logger = logging.getLogger("main")
 
-    logger.info("-----------------------------------------------------")
     logger.info("Starting Up OrpheusMoreBetter...")
 
     # Work with config files
@@ -346,8 +350,20 @@ def main():
 
     for groupid, torrentid in candidates:
         tg_d = api.request_ajax("torrentgroup", id=groupid)
+        
         # coerce to TorrentGroup - group info is stacked one deep under 'group' key
-        group = TorrentGroup(**tg_d['group'], torrent=tg_d['torrents'], primary_artists=tg_d['group']['musicInfo']['artists'])
+        artist_info = tg_d["group"]["musicInfo"]
+        group = TorrentGroup(
+            **tg_d['group'], 
+            torrent=tg_d['torrents'], 
+            composers=artist_info["composers"],
+            dj=artist_info["dj"],
+            artists=artist_info['artists'],
+            with_artists=artist_info["with"],
+            conductor=artist_info["conductor"],
+            remixed_by=artist_info["remixedBy"],
+            producer=artist_info["producer"]
+        )
         for t in group.torrent:
             t.groupId = group.id
 
@@ -395,7 +411,7 @@ def main():
 
         cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
         if (flac_dir != cleaned_flac_dir):
-            logger.warning(f'This OPH directory has hidden characters. You may be able to re-upload this manually and trump the original.')
+            logger.warning(f'This OPH folder name has hidden characters. You may be able to re-upload this manually and trump the original.')
 
         if int(do_24_bit):
             try:
@@ -495,7 +511,7 @@ def main():
                 finally:
                     shutil.rmtree(tmpdir)
             else:
-                logger.warning("    Path not found - skipping: {0}".format(flac_dir))
+                logger.error("    Path not found - skipping: {0}".format(flac_dir))
                 break
         seen.add(str(torrentid))
         pickle.dump(seen, open(args.cache, "wb"))
