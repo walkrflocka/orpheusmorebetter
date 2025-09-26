@@ -146,8 +146,16 @@ def copy_tags(flac_file: str, transcode_file: str):
                 totaltracks = scrub_tag("tracktotal", flac_info["tracktotal"][0])
 
             if totaltracks:
-                transcode_info["tracknumber"] = [
-                    "%s/%s" % (transcode_info["tracknumber"][0], totaltracks)
+                if transcode_info["tracknumber"][0].count("/") == 1:
+                    slash_pos = transcode_info["tracknumber"][0].find("/")
+                    first_num = transcode_info["tracknumber"][0][:slash_pos]
+                    # second_num = transcode_info["tracknumber"][0][slash_pos+1:]
+                    transcode_info["tracknumber"] = [
+                        "%s/%s" % (first_num, totaltracks)
+                        ]
+                else:
+                    transcode_info["tracknumber"] = [
+                        "%s/%s" % (transcode_info["tracknumber"][0], totaltracks)
                 ]
 
         if "discnumber" in transcode_info.keys():
@@ -158,9 +166,17 @@ def copy_tags(flac_file: str, transcode_file: str):
                 totaldiscs = scrub_tag("disctotal", flac_info["disctotal"][0])
 
             if totaldiscs:
-                transcode_info["discnumber"] = [
-                    "%s/%s" % (transcode_info["discnumber"][0], totaldiscs)
-                ]
+                if transcode_info["discnumber"][0].count("/") == 1:
+                    slash_pos = transcode_info["discnumber"][0].find("/")
+                    first_num = transcode_info["discnumber"][0][:slash_pos]
+                    # second_num = transcode_info["discnumber"][0][slash_pos+1:]
+                    transcode_info["discnumber"] = [
+                        "%s/%s" % (first_num, totaldiscs)
+                        ]
+                else:
+                    transcode_info["discnumber"] = [
+                        "%s/%s" % (transcode_info["discnumber"][0], totaldiscs)
+                        ]
 
     transcode_info.save()
 
