@@ -146,17 +146,8 @@ def copy_tags(flac_file: str, transcode_file: str):
                 totaltracks = scrub_tag("tracktotal", flac_info["tracktotal"][0])
 
             if totaltracks:
-                if transcode_info["tracknumber"][0].count("/") == 1:
-                    slash_pos = transcode_info["tracknumber"][0].find("/")
-                    first_num = transcode_info["tracknumber"][0][:slash_pos]
-                    # second_num = transcode_info["tracknumber"][0][slash_pos+1:]
-                    transcode_info["tracknumber"] = [
-                        "%s/%s" % (first_num, totaltracks)
-                        ]
-                else:
-                    transcode_info["tracknumber"] = [
-                        "%s/%s" % (transcode_info["tracknumber"][0], totaltracks)
-                ]
+                track_number = transcode_info["tracknumber"][0]
+                transcode_info["tracknumber"] = format_track_and_disc_numbers(track_number,totaltracks)
 
         if "discnumber" in transcode_info.keys():
             totaldiscs = None
@@ -166,17 +157,8 @@ def copy_tags(flac_file: str, transcode_file: str):
                 totaldiscs = scrub_tag("disctotal", flac_info["disctotal"][0])
 
             if totaldiscs:
-                if transcode_info["discnumber"][0].count("/") == 1:
-                    slash_pos = transcode_info["discnumber"][0].find("/")
-                    first_num = transcode_info["discnumber"][0][:slash_pos]
-                    # second_num = transcode_info["discnumber"][0][slash_pos+1:]
-                    transcode_info["discnumber"] = [
-                        "%s/%s" % (first_num, totaldiscs)
-                        ]
-                else:
-                    transcode_info["discnumber"] = [
-                        "%s/%s" % (transcode_info["discnumber"][0], totaldiscs)
-                        ]
+                disc_number = transcode_info["discnumber"][0]
+                transcode_info["discnumber"] = format_track_and_disc_numbers(disc_number,totaldiscs)
 
     transcode_info.save()
 
@@ -206,6 +188,14 @@ def originaldate_get(id3, _):
 
 def originaldate_set(id3, _, value):
     id3.add(mutagen.id3.TDOR(encoding=3, text=value))
+
+def format_track_and_disc_numbers(single_text,total_text):
+    if single_text.count("/") == 1:
+        slash_pos = single_text.find("/")
+        first_num = single_text[:slash_pos]
+        return ["%s/%s" % (first_num, total_text)]
+    else:
+        return ["%s/%s" % (single_text, total_text)]
 
 
 EasyID3.RegisterKey("comment", comment_get, comment_set)
