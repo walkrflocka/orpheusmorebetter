@@ -156,11 +156,17 @@ def transcode_commands(
     transcoding_steps = []
 
     transcoding_steps.append("flac -c -- {FLAC}")
+    # read flac file into stdout
+    # -c means output is stdout
+    # -- means end of options, next comes filename
 
     if resample:
         flac_decoder = "sox - -G -b 16 -t wav - rate -v -L {SAMPLERATE} dither"
     else:
         flac_decoder = "flac -ds -"
+        # decode flac from stdin into stdout as wav file
+        # -ds means decode, silent
+        # - means use stdin and stdout
 
     transcoding_steps.append(flac_decoder)
 
@@ -171,6 +177,8 @@ def transcode_commands(
     match encoder.enc:
         case "lame":
             lame_encoder = "lame -S {OPTS} - {FILE}"
+            # -S means silent
+            # - means use stdin
             transcoding_steps.append(lame_encoder)
         case "flac":
             flac_encoder = "flac {OPTS} -o {FILE} -"
