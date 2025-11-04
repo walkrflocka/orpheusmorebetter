@@ -1,13 +1,15 @@
 FROM python:3.13-alpine
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies using apk (Alpine's package manager)
+RUN apk add --no-cache \
     mktorrent \
     flac \
     lame \
     sox \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    gcc \
+    musl-dev \
+    linux-headers
 
 # Create application directory
 WORKDIR /app
@@ -22,7 +24,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN mkdir -p /config /cache /data /output /torrents
 
 # Create a non-root user (use standard UID for better compatibility)
-RUN useradd -m -u 99 -U orpheus && \
+RUN adduser -D -u 99 -h /config orpheus && \
     chown -R orpheus:orpheus /app /config /cache /data /output /torrents
 
 # Switch to non-root user
