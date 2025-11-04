@@ -6,7 +6,7 @@ This is a Docker implementation of the orpheusmorebetter script.
 
 ## Features
 
-- Based on Python 3.11 slim image
+- Based on Python 3.13 alpine image
 - Includes all required dependencies (mktorrent, flac, lame, sox)
 - Runs as non-root user for security
 - Configurable volume mounts for data, output, and torrents
