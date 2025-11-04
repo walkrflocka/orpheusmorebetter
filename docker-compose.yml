@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  orpheusmorebetter:
+    image: chodeus/orpheusmorebetter:latest
+    container_name: orpheusmorebetter
+    volumes:
+      - ./config:/config
+      - ./cache:/cache
+      - /path/to/your/flac/files:/data:ro
+      - /path/to/output:/output
+      - /path/to/watch/folder:/torrents
+    # Since this is a task runner, not a daemon, you'll typically run it manually
+    # Remove the command below to run interactively
+    command: --help
+    restart: "yes"
