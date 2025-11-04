@@ -1,11 +1,6 @@
-# ---- Base image ----
 FROM python:3.13-alpine
 
-# ---- Build arguments ----
-ARG REPO_URL=https://github.com/CHODEUS/orpheusmorebetter.git
-ARG BRANCH=main
-
-# ---- Install system dependencies ----
+# Install system and Python dependencies
 RUN apk add --no-cache \
     git \
     gcc \
@@ -14,26 +9,37 @@ RUN apk add --no-cache \
     mktorrent \
     flac \
     lame \
-    sox
+    sox \
+    py3-lxml \
+    py3-packaging \
+    py3-pip
 
-# ---- App setup ----
 WORKDIR /app
 
-# Clone the latest repo version at build time
-RUN git clone --depth=1 -b ${BRANCH} ${REPO_URL} .
+# Copy your repo into the container
+COPY . /app
 
-# Install Python dependencies & your package
+# Install Python dependencies and your package
 RUN pip install --no-cache-dir -r requirements.txt \
  && pip install --no-cache-dir .
 
-# ---- Create standard Unraid folders & non-root user ----
+# Optional build-time metadata
+ARG VERSION=dev
+ARG GIT_BRANCH=main
+RUN echo "v${VERSION}" > /app/version.txt \
+ && echo "${GIT_BRANCH}" > /app/branch.txt
+
+# Create required directories and user for Unraid
 RUN mkdir -p /config /cache /data /output /torrents \
  && adduser -D -u 99 -h /config orpheus \
  && chown -R orpheus:orpheus /app /config /cache /data /output /torrents
 
+# Copy in the startup script
+COPY start.sh /usr/local/bin/start.sh
+RUN chmod +x /usr/local/bin/start.sh
+
 USER orpheus
 ENV HOME=/config
 
-# ---- Entrypoint ----
-ENTRYPOINT ["python", "-m", "orpheusmorebetter"]
-CMD ["--help"]
+# Use the startup script as the entrypoint
+ENTRYPOINT ["/usr/local/bin/start.sh"]
