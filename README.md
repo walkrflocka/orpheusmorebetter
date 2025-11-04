@@ -25,7 +25,7 @@ mkdir -p ~/orpheus/cache
 ```bash
 docker run --rm \
   -v ~/orpheus/config:/config \
-  yourdockerhubusername/orpheusmorebetter:latest
+  chodeus/orpheusmorebetter:latest
 ```
 
 ### 3. Edit configuration
