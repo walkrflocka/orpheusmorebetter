@@ -116,3 +116,10 @@ logs/
 .vscode/
 .venv/
 notes.txt
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+Desktop.ini
