@@ -1,3 +1,4 @@
+import bencodepy
 import errno
 import os
 import os.path as path
@@ -6,6 +7,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import unicodedata
 
 from typing import Callable, Optional
 import logging
@@ -463,6 +465,24 @@ def transcode_release(
         shutil.rmtree(transcode_dir)
         raise
 
+def normalize_torrent_metadata(torrent):
+    with open(torrent, "rb") as f:
+        data = bencodepy.decode(f.read())
+
+    info = data[b"info"]
+    if b"files" in info:  # multi-file torrent
+        for f_entry in info[b"files"]:
+            f_entry[b"path"] = [
+                unicodedata.normalize("NFC", p.decode("utf-8")).encode("utf-8")
+                for p in f_entry[b"path"]
+            ]
+    elif b"name" in info:  # single-file torrent
+        info[b"name"] = unicodedata.normalize("NFC", info[b"name"].decode("utf-8")).encode("utf-8")
+
+    with open(torrent, "wb") as f:
+        f.write(bencodepy.encode(data))
+
+    print(f"Normalized torrent metadata in: {torrent}")
 
 def make_torrent(input_dir: str, output_dir: str, tracker: str, passkey: str, source: str | None) -> str:
     torrent = os.path.join(output_dir, path.basename(input_dir)) + ".torrent"
@@ -474,4 +494,7 @@ def make_torrent(input_dir: str, output_dir: str, tracker: str, passkey: str, so
     else:
         command = ["mktorrent", "-p", "-s", source, "-a", tracker_url, "-o", torrent, input_dir]
     subprocess.check_output(command, stderr=subprocess.STDOUT)
+
+    # Normalization needed on MacOS, see https://github.com/pobrn/mktorrent/issues/14
+    normalize_torrent_metadata(torrent)
     return torrent
