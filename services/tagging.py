@@ -49,7 +49,8 @@ class TaggingException(Exception):
 
 def valid_fractional_tag(value):
     # m or m/n
-    if re.match(r"""\d+(/(\d+))?$""", value):
+    # Examples: 1, 1/12 A1, A1/12
+    if re.match(r"""^[A-Za-z]?\d+(?:/\d+)?$""", value):
         return True
     else:
         return False
