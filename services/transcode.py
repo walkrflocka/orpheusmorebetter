@@ -153,12 +153,22 @@ def transcode_commands(
     transcode_file using the specified output_format, plus any
     resampling, if needed.
     """
-    if resample:
-        flac_decoder = "sox {FLAC} -G -b 16 -t wav - rate -v -L {SAMPLERATE} dither"
-    else:
-        flac_decoder = "flac -dcs -- {FLAC}"
+    transcoding_steps = []
 
-    transcoding_steps = [flac_decoder]
+    transcoding_steps.append("flac -c -- {FLAC}")
+    # read flac file into stdout
+    # -c means output is stdout
+    # -- means end of options, next comes filename
+
+    if resample:
+        flac_decoder = "sox - -G -b 16 -t wav - rate -v -L {SAMPLERATE} dither"
+    else:
+        flac_decoder = "flac -ds -"
+        # decode flac from stdin into stdout as wav file
+        # -ds means decode, silent
+        # - means use stdin and stdout
+
+    transcoding_steps.append(flac_decoder)
 
     encoder = output_format.encoder
     if encoder is None:
@@ -167,6 +177,8 @@ def transcode_commands(
     match encoder.enc:
         case "lame":
             lame_encoder = "lame -S {OPTS} - {FILE}"
+            # -S means silent
+            # - means use stdin
             transcoding_steps.append(lame_encoder)
         case "flac":
             flac_encoder = "flac {OPTS} -o {FILE} -"
@@ -433,12 +445,13 @@ def transcode_release(
             for filename in flac_files
         ]
         for filename, output_dir, output_format in arg_list:
-            transcode(filename, output_dir, output_format)
             try:
                 print_filename = filename.rsplit("/",1)[1]
             except ValueError:
                 print_filename = filename
             LOGGER.info(f"      Processing: {print_filename}")
+            
+            transcode(filename, output_dir, output_format)
 
         # copy other files
         allowed_extensions = [
