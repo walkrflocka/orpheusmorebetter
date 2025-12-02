@@ -22,6 +22,7 @@ from _version import __version__
 
 from services import tagging, transcode, whatapi
 from models import TorrentGroup, Torrent, Format
+import models.format as formats
 
 if sys.version_info < (3, 10, 0): # investigate 311
     raise Exception("Requires Python 3.10.0 or newer")
@@ -58,10 +59,7 @@ def create_description(
     return description
 
 
-def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: list[str]):
-    if "" in supported_formats:
-        supported_formats.remove("")
-
+def formats_needed(group: TorrentGroup, torrent: Torrent, requested_formats: set[Format]):
     def same_edition(t: Torrent):
         return t.media == torrent.media \
             and t.remasterYear == torrent.remasterYear \
@@ -76,6 +74,10 @@ def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: lis
     # thus subtracting what we already have will leave us with what we need
     # hurray for set operations!
     needed_formats = torrent.allowed_transcodes.difference(current_formats)
+
+    # only get what the user requests (9/10ths of the time will be the p3)
+    needed_formats = needed_formats.intersection(requested_formats)
+
     return needed_formats
 
 
@@ -210,10 +212,19 @@ def main():
         except configparser.NoOptionError:
             output_dir: str = data_dir[0]
         torrent_dir = os.path.expanduser(config.get("orpheus", "torrent_dir"))
-        supported_formats = [
-            format.strip().upper()
-            for format in config.get("orpheus", "formats").split(",")
-        ]
+
+        # parse out our requested formats
+        requested_formats: set[Format] = set()
+
+        for format_str in config.get("orpheus", "formats").split(","):
+            cleaned_format_str = format_str.strip().upper()
+
+            if 'FLAC' in cleaned_format_str:
+                requested_formats.add(formats.Flac)
+            elif '320' in cleaned_format_str:
+                requested_formats.add(formats.MP3_320)
+            elif 'V0' in cleaned_format_str:
+                requested_formats.add(formats.MP3_V0)
 
         try:
             media_config = config.get("orpheus", "media")
@@ -333,12 +344,12 @@ def main():
 
     for groupid, torrentid in candidates:
         tg_d = api.request_ajax("torrentgroup", id=groupid)
-        
+
         # coerce to TorrentGroup - group info is stacked one deep under 'group' key
         artist_info = tg_d["group"]["musicInfo"]
         group = TorrentGroup(
-            **tg_d['group'], 
-            torrent=tg_d['torrents'], 
+            **tg_d['group'],
+            torrent=tg_d['torrents'],
             composers=artist_info["composers"],
             dj=artist_info["dj"],
             artists=artist_info['artists'],
@@ -429,7 +440,7 @@ def main():
             )
             continue
 
-        needed = formats_needed(group, torrent, supported_formats)
+        needed = formats_needed(group, torrent, requested_formats)
         logger.info("  Formats needed: {0}".format(", ".join(f'{e.name} {e.encoding}' for e in needed)))
 
         if needed:
