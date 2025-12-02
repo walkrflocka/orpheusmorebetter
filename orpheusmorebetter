@@ -393,9 +393,8 @@ def main():
             continue
 
         cleaned_flac_dir = ''.join([char for char in flac_dir if char.isprintable()]) # strip out any non-ASCII characters
-        if flac_dir != cleaned_flac_dir and not(os.path.exists(flac_dir)):
-            logger.info("Non-ASCII characters found in Orpheus-side folder name. You may be able to report this torrent.")
-            flac_dir = cleaned_flac_dir
+        if flac_dir != cleaned_flac_dir and not(os.path.exists(flac_dir)): 
+            flac_dir = cleaned_flac_dir # If the original path name doesn't seem to exist, try the "cleaned" version instead.
 
         if int(do_24_bit):
             try:
