@@ -1,4 +1,4 @@
-from services import tagging
+import services.tagging as tagging
 
 class TrackNumTester:
     def test_single(self):
