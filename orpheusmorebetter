@@ -58,6 +58,17 @@ def create_description(
     return description
 
 
+def add_to_cache(seen: dict, id: str, result: str):
+    now = datetime.now()
+    seen.update({
+        id : {
+            "last_check" : now,
+            "result" : result
+            }
+        })
+    return
+
+
 def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: list[str]):
     if "" in supported_formats:
         supported_formats.remove("")
@@ -271,7 +282,6 @@ def main():
 
     logger.info("Logging in to Orpheus Network...")
     api = whatapi.WhatAPI(username, password, endpoint, args.totp)
-    seen: set[str]
 
     try:
         with open(args.cache, "rb") as f:
@@ -280,8 +290,16 @@ def main():
         # If the cache file doesn't exist, create a new one
         logger.info("Cache file not found, creating a new one.")
         with open(args.cache, "wb") as f:
-            seen = set()
-            pickle.dump(set(), f)
+            seen = dict()
+            pickle.dump(dict(), f)   
+    if type(seen) is set:
+        logger.info("Cache is old format, creating a new one.")
+        os.remove(args.cache)
+        with open(args.cache, "wb") as f:
+            seen = dict()
+            pickle.dump(dict(), f)
+    assert type(seen) is dict
+    logger.info("Cache size: {0} entries".format(len(seen)))
 
     if args.skip:
         parsed_urls = [
@@ -290,7 +308,7 @@ def main():
         skip = [int(query["torrentid"]) for query in parsed_urls]
         for id in skip:
             logger.info("Skipping torrent {0}".format(str(id)))
-            seen.add(str(id))
+            add_to_cache(seen, str(id),"skipped")
         pickle.dump(seen, open(args.cache, "wb"))
         return
 
@@ -355,7 +373,6 @@ def main():
         release = f"Release found: {group.name} ({group.year})"
         releaseurl = f"  Release URL: {api.release_url(group, torrent)}"
 
-        logger.info("")
         logger.info(release)
         logger.info(releaseurl)
 
@@ -431,6 +448,7 @@ def main():
 
         needed = formats_needed(group, torrent, supported_formats)
         logger.info("  Formats needed: {0}".format(", ".join(f'{e.name} {e.encoding}' for e in needed)))
+        success = True
 
         if needed:
             # Before proceeding, do the basic tag checks on the source
@@ -490,14 +508,20 @@ def main():
                         break
                 except Exception as e:
                     logger.error("      Error adding format {0}: {1}".format(format, e))
+                    success = False
                     traceback.print_exc()
                 finally:
                     shutil.rmtree(tmpdir)
             else:
                 logger.error("    Path not found - skipping: {0}".format(flac_dir))
+                success = False
                 break
-        seen.add(str(torrentid))
+        result = "success" if success else "failure"
+        logger.info("Writing {0} to cache".format(result))
+        add_to_cache(seen, str(torrentid), result)
         pickle.dump(seen, open(args.cache, "wb"))
+        logger.info("")
+
     logger.info("Process complete. Exiting.")
 
 

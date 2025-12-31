@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from models import Torrent, TorrentGroup, Format
 from models.exceptions import RequestException
+from datetime import datetime
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -21,6 +22,8 @@ media_search_map = {
     "web": "WEB",
     "blu-ray": "Blu-ray",
 }
+
+age_to_rescan = 90
 
 lossless_media = set(media_search_map.keys())
 
@@ -142,7 +145,7 @@ class WhatAPI:
         self,
         type: Literal["snatched", "uploaded"],
         media_params: list[str],
-        skip: set[str] | None,
+        skip: dict | None,
     ):
         LOGGER.info(f"Finding {type} torrents")
         url = f"{self.base_url}/torrents.php?type={type}&userid={self.user_id}&format=FLAC"
@@ -181,7 +184,9 @@ class WhatAPI:
                         torrent_id: str = match.group(2)
 
                         if skip is not None and torrent_id in skip:
-                            continue
+                            we_should_skip = self.should_we_skip(skip, torrent_id)
+                            if we_should_skip:
+                                continue
 
                         yield int(group_id), int(torrent_id)
 
@@ -191,7 +196,7 @@ class WhatAPI:
     def get_candidates(
         self,
         mode: str,
-        skip: set[str] | None = None,
+        skip: dict | None = None,
         media: set[str] = lossless_media,
     ):
         if not media.issubset(lossless_media):
@@ -229,7 +234,11 @@ class WhatAPI:
             content = self.get_html(url)
             for group_id, torrent_id in pattern.findall(content):
                 if skip is None or torrent_id not in skip:
-                    yield int(group_id), int(torrent_id)
+                        yield int(group_id), int(torrent_id)
+                else:
+                    we_should_skip = self.should_we_skip(skip, torrent_id)
+                    if we_should_skip == False:
+                        yield int(group_id), int(torrent_id)
 
     def upload(
         self,
@@ -359,3 +368,16 @@ class WhatAPI:
     def get_torrent_info(self, id):
         t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
         return Torrent(**t_dict)
+
+    def should_we_skip(self, skip: dict, torrent_id: str):
+        right_now = datetime.now()
+        last_scan_date = skip[torrent_id]["last_check"]
+        days_diff = right_now - last_scan_date
+        we_should_skip = True
+        if days_diff.days > age_to_rescan:
+            we_should_skip = False
+            LOGGER.info("Found in cache, but rescanning due to age")
+        if skip[torrent_id]["result"] != "success":
+            we_should_skip = False
+            LOGGER.info("Found in cache, but rescanning due to errors/issues")
+        return we_should_skip
