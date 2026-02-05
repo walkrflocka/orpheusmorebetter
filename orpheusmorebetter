@@ -332,17 +332,22 @@ def main():
             if mode == "none":
                 logger.info("No urls provided and scraping is disabled")
             else:
-                candidates = api.get_candidates(mode, skip=seen, media=supported_media)
+                candidates = list(api.get_candidates(mode, skip=seen, media=supported_media))
         elif args.mode == "none":
             logger.info("No urls provided and scraping is disabled")
         else:
-            candidates = api.get_candidates(args.mode, skip=seen, media=supported_media)
+            candidates = list(api.get_candidates(args.mode, skip=seen, media=supported_media))
 
     if candidates is None:
         logger.info('No candidates found, ending program.')
         return # crashout
 
-    for groupid, torrentid in candidates:
+    total_candidates = len(candidates)
+    logger.info(f"Found {total_candidates} releases to process")
+
+    for i, (groupid, torrentid) in enumerate(candidates, 1):
+        logger.info("")
+        logger.info(f"Checking release {i}/{total_candidates}")
         tg_d = api.request_ajax("torrentgroup", id=groupid)
 
         # coerce to TorrentGroup - group info is stacked one deep under 'group' key
@@ -366,7 +371,6 @@ def main():
         release = f"Release found: {group.name} ({group.year})"
         releaseurl = f"  Release URL: {api.release_url(group, torrent)}"
 
-        logger.info("")
         logger.info(release)
         logger.info(releaseurl)
 
