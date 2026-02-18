@@ -10,7 +10,6 @@ class Torrent(BaseModel):
     format: str
     seeders: int
     snatched: int
-    remastered: bool
     description: str
     remasterYear: int | None = None
     remasterTitle: str
