@@ -253,21 +253,13 @@ class WhatAPI:
             "groupid": group.id,
         }
 
-        if torrent.remastered:
-            form.update({
-                "remaster": True,
-                "remaster_year": str(torrent.remasterYear),
-                "remaster_title": torrent.remasterTitle,
-                "remaster_record_label": torrent.remasterRecordLabel,
-                "remaster_catalogue_number": torrent.remasterCatalogueNumber,
-            })
-        else:
-            form.update({
-                "remaster_year": "",
-                "remaster_title": "",
-                "remaster_record_label": "",
-                "remaster_catalogue_number": "",
-            })
+        form.update({
+            "remaster": True,
+            "remaster_year": str(torrent.remasterYear),
+            "remaster_title": torrent.remasterTitle,
+            "remaster_record_label": torrent.remasterRecordLabel,
+            "remaster_catalogue_number": torrent.remasterCatalogueNumber,
+        })
 
         form.update({
             "format": format.name,
@@ -292,12 +284,11 @@ class WhatAPI:
             "bitrate": "24bit Lossless",
             "release_desc": torrent.description,
         }
-        if torrent.remastered:
-            data["remaster"] = "on"
-            data["remaster_year"] = torrent.remasterYear
-            data["remaster_title"] = torrent.remasterTitle
-            data["remaster_record_label"] = torrent.remasterRecordLabel
-            data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
+        data["remaster"] = "on"
+        data["remaster_year"] = torrent.remasterYear
+        data["remaster_title"] = torrent.remasterTitle
+        data["remaster_record_label"] = torrent.remasterRecordLabel
+        data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
 
         url = f"{self.base_url}/torrents.php?action=edit&id={torrent.id}"
 
