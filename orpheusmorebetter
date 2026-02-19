@@ -147,6 +147,7 @@ def main():
         "-o", "--source", help="the value to put in the source flag in created torrents"
     )
     parser.add_argument("-d", "--debug", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args()
 
@@ -491,7 +492,7 @@ def main():
                         transcode_dir, tmpdir, tracker, api.passkey, source
                     )
                     logger.info("      Transcode successful, torrent created")
-                    if upload_torrent:
+                    if not args.dry_run and upload_torrent:
                         logger.info("      Uploading to OPS...")
                         description = create_description(torrent, flac_dir, format)
                         api.upload(group, torrent, new_torrent, format, description)
@@ -508,7 +509,9 @@ def main():
                 logger.error("    Path not found - skipping: {0}".format(flac_dir))
                 break
         seen.add(str(torrentid))
-        pickle.dump(seen, open(args.cache, "wb"))
+
+        if not args.dry_run:
+            pickle.dump(seen, open(args.cache, "wb"))
     logger.info("Process complete. Exiting.")
 
 
