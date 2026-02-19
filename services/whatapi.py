@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from models import Torrent, TorrentGroup, Format
 from models.exceptions import RequestException
+from pydantic import ValidationError
 
 # gazelle is picky about case in searches with &media=x
 media_search_map = {
@@ -348,5 +349,8 @@ class WhatAPI:
         return None
 
     def get_torrent_info(self, id):
-        t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        try:
+            t_dict = self.request_ajax("torrent", id=id, method="GET")["torrent"]
+        except ValidationError as e:
+            raise ValidationError("API contract broken - please contact maintainers") from e
         return Torrent(**t_dict)
