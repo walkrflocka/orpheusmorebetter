@@ -7,6 +7,7 @@ import pickle
 
 from datetime import datetime
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -78,10 +79,24 @@ def formats_needed(group: TorrentGroup, torrent: Torrent, supported_formats: lis
     needed_formats = torrent.allowed_transcodes.difference(current_formats)
     return needed_formats
 
+def setup_logging():
+    folder_name = "logs/"
+    now = datetime.now()
+    log_filename = os.path.join(folder_name, now.strftime("%Y-%m-%d %H-%M-%S.%f.txt"))
+    if not os.path.exists(folder_name):
+        os.mkdir("logs")
+        return log_filename
+    file_gen = (f for f in os.listdir(folder_name) if os.path.isfile(os.path.join(folder_name, f)) and re.match(r"\d{4}-\d{2}-\d{2} \d{2}\S\d{2}\S\d{2}.\d{6}.txt", f))
+    file_list = [f for f in file_gen]
+    file_list.sort(key=None, reverse=True)
+    count = 0
+    for f in file_list:
+        count +=1
+        if count > 9:
+            os.remove(os.path.join(folder_name, f))
+    return log_filename
 
 def main():
-    if not os.path.exists("logs/"):
-        os.mkdir("logs")
 
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, prog="orpheusmorebetter"
@@ -158,11 +173,13 @@ def main():
     else:
         level = logging.INFO
 
+    log_filename = setup_logging()
+    
     logging.basicConfig(
         level=level,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(f"logs/{str(datetime.now())}.txt", mode="w"),
+            logging.FileHandler(log_filename, mode="w"),
             logging.StreamHandler(),
         ],
     )
