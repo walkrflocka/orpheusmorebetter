@@ -58,6 +58,15 @@ tracker = https://home.opsfet.ch/
 api = https://orpheus.network/
 mode = both
 source = OPS
+
+[qbittorrent]
+enable = false
+host = http://localhost:8080
+username =
+password =
+category =
+tags =
+paused = false
 ```
 
 If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is an extremely similar config format.
@@ -93,6 +102,15 @@ If you have used `orpheusbetter`, `whatbetter`, or `redbetter`, this is an extre
  - `none`     - Disable scraping.
 
  `source` is the source flag to add to created torrents. Leave blank if you are running `mktorrent` 1.0.
+
+The optional `[qbittorrent]` section lets `orpheusmorebetter` add finished torrents straight to a running qBittorrent instance via its WebUI API, pointed at the transcode output so qBittorrent rechecks and starts seeding immediately. When this succeeds, the `.torrent` is *not* copied into `torrent_dir`; if it's disabled or the add fails, the tool falls back to the usual `torrent_dir` copy.
+
+ - `enable` - set to `true` to turn on qBittorrent injection.
+ - `host` - base URL of the qBittorrent WebUI, e.g. `http://localhost:8080`.
+ - `username` / `password` - WebUI credentials. Leave both blank if qBittorrent is configured to bypass authentication for localhost clients.
+ - `category` - optional category to assign to added torrents.
+ - `tags` - optional comma-separated tags.
+ - `paused` - set to `true` to add torrents in a paused/stopped state.
 
 You should end up with something like this:
 

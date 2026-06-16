@@ -12,3 +12,6 @@ class LoginException(Exception):
 
 class RequestException(Exception):
     pass
+
+class QBittorrentException(Exception):
+    pass
