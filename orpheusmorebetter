@@ -16,7 +16,6 @@ import html
 from urllib.parse import urlparse, parse_qsl
 from multiprocessing import cpu_count
 from typing import List
-import warnings
 
 from _version import __version__
 
@@ -101,8 +100,8 @@ def main():
         "-j",
         "--threads",
         type=int,
-        help="number of threads to use when transcoding",
-        default=1 #max(cpu_count() - 1, 1),
+        help="number of threads to use when transcoding a release",
+        default=max(cpu_count() - 1, 1),
     )
     parser.add_argument(
         "--config",
@@ -150,8 +149,7 @@ def main():
 
     args = parser.parse_args()
 
-    if args.threads != 1:
-        warnings.warn("Multithreading is temporarily disabled in this version. Defaulting to single-thread behavior.")
+    if args.threads < 1:
         args.threads = 1
 
     if args.debug is not None and args.debug is True:
@@ -486,7 +484,7 @@ def main():
                     os.mkdir(local_torrent_dir)
 
                 try:
-                    transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, torrent, group)
+                    transcode_dir = transcode.transcode_release(flac_dir, local_output_dir, format, torrent, group, max_threads=args.threads)
                     new_torrent = transcode.make_torrent(
                         transcode_dir, tmpdir, tracker, api.passkey, source
                     )

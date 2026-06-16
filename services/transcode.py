@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 import logging
 
@@ -388,9 +389,17 @@ def transcode_release(
     output_format: Format,
     source_torrent: Torrent,
     source_torrent_group: TorrentGroup,
+    max_threads: int = 1,
 ):
     """
     Transcode a FLAC release into another format.
+
+    The individual FLAC files within the release are transcoded in
+    parallel using up to max_threads worker threads. Threads (rather
+    than processes) are used because the actual encoding happens in
+    external subprocesses (sox/flac/lame), which run concurrently and
+    release the GIL while they work. This keeps all login/upload/cache
+    orchestration on the single calling thread.
     """
     flac_dir = os.path.abspath(flac_dir)
     output_dir = os.path.abspath(output_dir)
@@ -432,13 +441,20 @@ def transcode_release(
             )
             for filename in flac_files
         ]
-        for filename, output_dir, output_format in arg_list:
-            transcode(filename, output_dir, output_format)
+
+        def transcode_one(args: tuple[str, str, Format]):
+            filename, file_output_dir, file_output_format = args
+            transcode(filename, file_output_dir, file_output_format)
             try:
-                print_filename = filename.rsplit("/",1)[1]
+                print_filename = filename.rsplit("/", 1)[1]
             except ValueError:
                 print_filename = filename
             LOGGER.info(f"      Processing: {print_filename}")
+
+        with ThreadPoolExecutor(max_workers=max(max_threads, 1)) as executor:
+            # list() forces iteration, so any exception raised inside a
+            # worker is re-raised here and triggers the cleanup below.
+            list(executor.map(transcode_one, arg_list))
 
         # copy other files
         allowed_extensions = [
