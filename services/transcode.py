@@ -6,6 +6,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import threading
 
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
@@ -34,7 +35,16 @@ def run_pipeline(cmds: list[str]) -> list[tuple[int, str]]:
     # The Python executable (and its children) ignore SIGPIPE. (See
     # http://bugs.python.org/issue1652) Our subprocesses need to see
     # it.
-    sigpipe_handler = signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    #
+    # signal.signal() may only be called from the main thread, but when
+    # transcoding a release in parallel this runs in worker threads.
+    # subprocess.Popen already restores SIGPIPE to SIG_DFL in its
+    # children (restore_signals=True, the default), so off the main
+    # thread we simply skip the manual handler swap.
+    on_main_thread = threading.current_thread() is threading.main_thread()
+    sigpipe_handler = None
+    if on_main_thread:
+        sigpipe_handler = signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     stdin = None
     last_proc = None
     procs = []
@@ -53,7 +63,8 @@ def run_pipeline(cmds: list[str]) -> list[tuple[int, str]]:
             stdin = proc.stdout
             last_proc = proc
     finally:
-        signal.signal(signal.SIGPIPE, sigpipe_handler)
+        if on_main_thread:
+            signal.signal(signal.SIGPIPE, sigpipe_handler)
 
     if last_proc is None:
         LOGGER.warning('No commands run.')
