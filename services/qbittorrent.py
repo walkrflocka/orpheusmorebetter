@@ -90,7 +90,30 @@ class QBittorrentClient:
             f"{self.base_url}/api/v2/torrents/add", data=data, files=files
         )
         r.raise_for_status()
-        if r.text.strip() != "Ok.":
-            raise QBittorrentException(
-                f"qBittorrent rejected the torrent: {r.text.strip() or r.status_code}"
-            )
+
+        body = r.text.strip()
+
+        # Older qBittorrent returns the plain text "Ok." on success.
+        if body == "Ok.":
+            return
+
+        # Newer qBittorrent returns a JSON summary instead, e.g.
+        # {"added_torrent_ids": [...], "failure_count": 0, "success_count": 1}.
+        # Treat it as success as long as nothing failed and at least one
+        # torrent was added or is pending.
+        try:
+            summary = r.json()
+        except ValueError:
+            summary = None
+
+        if isinstance(summary, dict):
+            if summary.get("failure_count", 0) == 0 and (
+                summary.get("success_count", 0)
+                or summary.get("pending_count", 0)
+                or summary.get("added_torrent_ids")
+            ):
+                return
+
+        raise QBittorrentException(
+            f"qBittorrent rejected the torrent: {body or r.status_code}"
+        )
