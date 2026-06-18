@@ -303,6 +303,24 @@ class WhatAPI:
     def permalink(self, torrent: Torrent):
         return f"{self.base_url}/torrents.php?torrentid={torrent.id}"
 
+    def resolve_candidate(
+        self, torrentid: int | None = None, hash: str | None = None
+    ) -> tuple[int, int]:
+        """Resolve a (groupid, torrentid) pair from a torrent id or info hash.
+
+        Gazelle's ajax.php?action=torrent accepts either an `id` (torrent id)
+        or a `hash` (uppercase hex info hash) and returns both the group and
+        torrent objects, so we can recover the group id either way.
+        """
+        if torrentid is not None:
+            response = self.request_ajax("torrent", id=torrentid)
+        elif hash is not None:
+            response = self.request_ajax("torrent", hash=hash.upper())
+        else:
+            raise ValueError("resolve_candidate requires a torrentid or a hash")
+
+        return int(response["group"]["id"]), int(response["torrent"]["id"])
+
     def get_better(self, type: int = 3):
         p = re.compile(
             r'(torrents\.php\?action=download&(?:amp;)?id=(\d+)[^"]*).*(torrents\.php\?id=\d+(?:&amp;|&)torrentid=\2\#torrent\d+)',
