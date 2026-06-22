@@ -63,7 +63,31 @@ class QBittorrentClient:
 
         savepath should point at the directory that *contains* the torrent's
         top-level folder, so qBittorrent finds the existing files and seeds.
+
+        The persistent session reuses pooled keep-alive connections. If the
+        server closed an idle one in the meantime, the first write fails
+        with a connection reset. Retry once so requests can open a fresh
+        connection.
         """
+        try:
+            return self._add_torrent(
+                torrent_path, savepath, category, tags, paused, auto_tmm
+            )
+        except requests.exceptions.ConnectionError:
+            LOGGER.warning("qBittorrent connection reset; retrying once.")
+            return self._add_torrent(
+                torrent_path, savepath, category, tags, paused, auto_tmm
+            )
+
+    def _add_torrent(
+        self,
+        torrent_path: str,
+        savepath: str | None,
+        category: str | None,
+        tags: str | None,
+        paused: bool,
+        auto_tmm: bool,
+    ):
         with open(torrent_path, "rb") as f:
             files = {
                 "torrents": (
