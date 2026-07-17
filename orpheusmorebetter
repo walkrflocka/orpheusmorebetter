@@ -4,6 +4,7 @@ import configparser
 import argparse
 
 import pickle
+import re
 
 from datetime import datetime
 import os
@@ -26,6 +27,36 @@ import models.format as formats
 
 if sys.version_info < (3, 10, 0): # investigate 311
     raise Exception("Requires Python 3.10.0 or newer")
+
+
+# A bittorrent v1 info hash is 40 hex characters.
+HASH_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+
+
+def arg_to_candidate(api: whatapi.WhatAPI, arg: str) -> tuple[int, int]:
+    """Turn a release URL or an info hash into a (groupid, torrentid) pair.
+
+    If the argument looks like an info hash, the torrent is looked up by hash.
+    Otherwise it's treated as a URL: the `torrentid` is taken from the query
+    string, and the group id is taken from `id` if present, or resolved from
+    the API when only the torrent id is known.
+    """
+    arg = arg.strip()
+
+    if HASH_RE.match(arg):
+        return api.resolve_candidate(hash=arg)
+
+    query = dict(parse_qsl(urlparse(arg).query))
+    if "torrentid" not in query:
+        raise ValueError(
+            "URL is missing a 'torrentid' parameter: {0}".format(arg)
+        )
+
+    torrentid = int(query["torrentid"])
+    if "id" in query:
+        return int(query["id"]), torrentid
+
+    return api.resolve_candidate(torrentid=torrentid)
 
 
 def banner():
@@ -89,7 +120,9 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, prog="orpheusmorebetter"
     )
     parser.add_argument(
-        "release_urls", nargs="*", help="the URL where the release is located"
+        "release_urls",
+        nargs="*",
+        help="a release URL, or an info hash, identifying the release",
     )
     parser.add_argument(
         "-s",
@@ -295,10 +328,11 @@ def main():
             pickle.dump(set(), f)
 
     if args.skip:
-        parsed_urls = [
-            dict(parse_qsl(urlparse(url).query)) for url in args.release_urls
+        skip = [
+            torrentid for _, torrentid in (
+                arg_to_candidate(api, url) for url in args.release_urls
+            )
         ]
-        skip = [int(query["torrentid"]) for query in parsed_urls]
         for id in skip:
             logger.info("Skipping torrent {0}".format(str(id)))
             seen.add(str(id))
@@ -313,19 +347,15 @@ def main():
                 "You supplied a url list, ignoring your configuration's media types."
             )
             with open(args.release_urls[0]) as f:
-                parsed_urls = [dict(parse_qsl(urlparse(url).query)) for url in f]
                 candidates = [
-                    (int(query["id"]), int(query["torrentid"])) for query in parsed_urls
+                    arg_to_candidate(api, line) for line in f if line.strip()
                 ]
         else:
             logger.info(
                 "You supplied one or more release URLs, ignoring your configuration's media types."
             )
-            parsed_urls = [
-                dict(parse_qsl(urlparse(url).query)) for url in args.release_urls
-            ]
             candidates = [
-                (int(query["id"]), int(query["torrentid"])) for query in parsed_urls
+                arg_to_candidate(api, url) for url in args.release_urls
             ]
     else:
         if args.mode is None:

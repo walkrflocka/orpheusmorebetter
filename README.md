@@ -122,7 +122,8 @@ usage: orpheusmorebetter [-h] [-s] [-j THREADS] [--config CONFIG] [--cache CACHE
                      [release_urls [release_urls ...]]
 
 positional arguments:
-  release_urls          the URL where the release is located (default: None)
+  release_urls          a release URL, or an info hash, identifying the release
+                        (default: None)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -162,6 +163,20 @@ To transcode and upload a specific release (provided you have already downloaded
 ```bash
 orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000
 ```
+
+You don't need the full URL. If you only have the torrent id, a URL with just `torrentid` works too — the group id is looked up automatically:
+
+```bash
+orpheusmorebetter https://orpheus.network/torrents.php?torrentid=1000000
+```
+
+You can also identify a release by its info hash (40 hex characters), which is resolved against the API the same way:
+
+```bash
+orpheusmorebetter DEADBEEF1234567890ABCDEF1234567890ABCDEF
+```
+
+Any of these forms may be mixed together, passed multiple times, or listed one per line in a file given as the single argument.
 
 Note that if you specify a particular release(s), orpheusmorebetter will ignore your configuration's media types and attempt to transcode the releases you have specified regardless of their media type. (so long as they are lossless types)
 
