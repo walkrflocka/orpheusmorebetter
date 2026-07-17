@@ -253,21 +253,13 @@ class WhatAPI:
             "groupid": group.id,
         }
 
-        if torrent.remastered:
-            form.update({
-                "remaster": True,
-                "remaster_year": str(torrent.remasterYear),
-                "remaster_title": torrent.remasterTitle,
-                "remaster_record_label": torrent.remasterRecordLabel,
-                "remaster_catalogue_number": torrent.remasterCatalogueNumber,
-            })
-        else:
-            form.update({
-                "remaster_year": "",
-                "remaster_title": "",
-                "remaster_record_label": "",
-                "remaster_catalogue_number": "",
-            })
+        form.update({
+            "remaster": True,
+            "remaster_year": str(torrent.remasterYear),
+            "remaster_title": torrent.remasterTitle,
+            "remaster_record_label": torrent.remasterRecordLabel,
+            "remaster_catalogue_number": torrent.remasterCatalogueNumber,
+        })
 
         form.update({
             "format": format.name,
@@ -292,12 +284,11 @@ class WhatAPI:
             "bitrate": "24bit Lossless",
             "release_desc": torrent.description,
         }
-        if torrent.remastered:
-            data["remaster"] = "on"
-            data["remaster_year"] = torrent.remasterYear
-            data["remaster_title"] = torrent.remasterTitle
-            data["remaster_record_label"] = torrent.remasterRecordLabel
-            data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
+        data["remaster"] = "on"
+        data["remaster_year"] = torrent.remasterYear
+        data["remaster_title"] = torrent.remasterTitle
+        data["remaster_record_label"] = torrent.remasterRecordLabel
+        data["remaster_catalogue_number"] = torrent.remasterCatalogueNumber
 
         url = f"{self.base_url}/torrents.php?action=edit&id={torrent.id}"
 
@@ -311,6 +302,24 @@ class WhatAPI:
 
     def permalink(self, torrent: Torrent):
         return f"{self.base_url}/torrents.php?torrentid={torrent.id}"
+
+    def resolve_candidate(
+        self, torrentid: int | None = None, hash: str | None = None
+    ) -> tuple[int, int]:
+        """Resolve a (groupid, torrentid) pair from a torrent id or info hash.
+
+        Gazelle's ajax.php?action=torrent accepts either an `id` (torrent id)
+        or a `hash` (uppercase hex info hash) and returns both the group and
+        torrent objects, so we can recover the group id either way.
+        """
+        if torrentid is not None:
+            response = self.request_ajax("torrent", id=torrentid)
+        elif hash is not None:
+            response = self.request_ajax("torrent", hash=hash.upper())
+        else:
+            raise ValueError("resolve_candidate requires a torrentid or a hash")
+
+        return int(response["group"]["id"]), int(response["torrent"]["id"])
 
     def get_better(self, type: int = 3):
         p = re.compile(
