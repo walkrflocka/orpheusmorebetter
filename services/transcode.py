@@ -6,7 +6,9 @@ import shlex
 import shutil
 import signal
 import subprocess
+import threading
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 import logging
 
@@ -33,7 +35,16 @@ def run_pipeline(cmds: list[str]) -> list[tuple[int, str]]:
     # The Python executable (and its children) ignore SIGPIPE. (See
     # http://bugs.python.org/issue1652) Our subprocesses need to see
     # it.
-    sigpipe_handler = signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+    #
+    # signal.signal() may only be called from the main thread, but when
+    # transcoding a release in parallel this runs in worker threads.
+    # subprocess.Popen already restores SIGPIPE to SIG_DFL in its
+    # children (restore_signals=True, the default), so off the main
+    # thread we simply skip the manual handler swap.
+    on_main_thread = threading.current_thread() is threading.main_thread()
+    sigpipe_handler = None
+    if on_main_thread:
+        sigpipe_handler = signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     stdin = None
     last_proc = None
     procs = []
@@ -52,7 +63,8 @@ def run_pipeline(cmds: list[str]) -> list[tuple[int, str]]:
             stdin = proc.stdout
             last_proc = proc
     finally:
-        signal.signal(signal.SIGPIPE, sigpipe_handler)
+        if on_main_thread:
+            signal.signal(signal.SIGPIPE, sigpipe_handler)
 
     if last_proc is None:
         LOGGER.warning('No commands run.')
@@ -388,9 +400,17 @@ def transcode_release(
     output_format: Format,
     source_torrent: Torrent,
     source_torrent_group: TorrentGroup,
+    max_threads: int = 1,
 ):
     """
     Transcode a FLAC release into another format.
+
+    The individual FLAC files within the release are transcoded in
+    parallel using up to max_threads worker threads. Threads (rather
+    than processes) are used because the actual encoding happens in
+    external subprocesses (sox/flac/lame), which run concurrently and
+    release the GIL while they work. This keeps all login/upload/cache
+    orchestration on the single calling thread.
     """
     flac_dir = os.path.abspath(flac_dir)
     output_dir = os.path.abspath(output_dir)
@@ -432,13 +452,20 @@ def transcode_release(
             )
             for filename in flac_files
         ]
-        for filename, output_dir, output_format in arg_list:
-            transcode(filename, output_dir, output_format)
+
+        def transcode_one(args: tuple[str, str, Format]):
+            filename, file_output_dir, file_output_format = args
+            transcode(filename, file_output_dir, file_output_format)
             try:
-                print_filename = filename.rsplit("/",1)[1]
+                print_filename = filename.rsplit("/", 1)[1]
             except ValueError:
                 print_filename = filename
             LOGGER.info(f"      Processing: {print_filename}")
+
+        with ThreadPoolExecutor(max_workers=max(max_threads, 1)) as executor:
+            # list() forces iteration, so any exception raised inside a
+            # worker is re-raised here and triggers the cleanup below.
+            list(executor.map(transcode_one, arg_list))
 
         # copy other files
         allowed_extensions = [
