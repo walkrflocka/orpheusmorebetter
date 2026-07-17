@@ -157,10 +157,18 @@ To transcode and upload every snatch you've ever downloaded along with all your 
 orpheusmorebetter
 ```
 
-To transcode and upload a specific release (provided you have already downloaded the FLAC and it is located in your `data_dir`):
+To transcode and upload a specific release, any of the following will work:
+  - In the examples below, you either have to add a slash before the ampersand, escaping it out, OR you can put the url in quotes.
+  - Also, you (obviously) have to have already downloaded the FLAC and have it located in your `data_dir`
 
 ```bash
+orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000#torrent1000000
 orpheusmorebetter https://orpheus.network/torrents.php?id=1000\&torrentid=1000000
+orpheusmorebetter ?id=1000\&torrentid=1000000
+
+orpheusmorebetter "https://orpheus.network/torrents.php?id=1000&torrentid=1000000#torrent1000000"
+orpheusmorebetter "https://orpheus.network/torrents.php?id=1000&torrentid=1000000"
+orpheusmorebetter "?id=1000&torrentid=1000000"
 ```
 
 Note that if you specify a particular release(s), orpheusmorebetter will ignore your configuration's media types and attempt to transcode the releases you have specified regardless of their media type. (so long as they are lossless types)
