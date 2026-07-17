@@ -21,7 +21,7 @@ import warnings
 
 from _version import __version__
 
-from services import tagging, transcode, whatapi
+from services import tagging, transcode, whatapi, qbittorrent
 from models import TorrentGroup, Torrent, Format
 import models.format as formats
 
@@ -230,6 +230,18 @@ def main():
         config.set("orpheus", "mode", "both")
         config.set("orpheus", "api", "https://orpheus.network/")
         config.set("orpheus", "source", "OPS")
+        # qBittorrent injection (optional). When enabled, finished torrents are
+        # added straight to qBittorrent pointed at the transcode output instead
+        # of being dropped into torrent_dir. Leave username/password blank if
+        # the WebUI bypasses auth for localhost.
+        config.add_section("qbittorrent")
+        config.set("qbittorrent", "enable", "false")
+        config.set("qbittorrent", "host", "http://localhost:8080")
+        config.set("qbittorrent", "username", "")
+        config.set("qbittorrent", "password", "")
+        config.set("qbittorrent", "category", "")
+        config.set("qbittorrent", "tags", "")
+        config.set("qbittorrent", "paused", "false")
         config.write(open(args.config, "w"))
         logger.warning("Please edit the configuration file: {0}".format(args.config))
         sys.exit(2)
@@ -311,10 +323,32 @@ def main():
         if config.has_option("orpheus", "source"):
             source = config.get("orpheus", "source")
 
+        qbit_enabled = config.getboolean("qbittorrent", "enable", fallback=False)
+        qbit_host = config.get("qbittorrent", "host", fallback="http://localhost:8080")
+        qbit_username = config.get("qbittorrent", "username", fallback="")
+        qbit_password = config.get("qbittorrent", "password", fallback="")
+        qbit_category = config.get("qbittorrent", "category", fallback="")
+        qbit_tags = config.get("qbittorrent", "tags", fallback="")
+        qbit_paused = config.getboolean("qbittorrent", "paused", fallback=False)
+
     upload_torrent = not args.no_upload
 
     logger.info("Logging in to Orpheus Network...")
     api = whatapi.WhatAPI(username, password, endpoint, args.totp)
+
+    qbit_client = None
+    if qbit_enabled:
+        logger.info("Connecting to qBittorrent at {0}...".format(qbit_host))
+        try:
+            qbit_client = qbittorrent.QBittorrentClient(
+                qbit_host, qbit_username, qbit_password
+            )
+        except Exception as e:
+            logger.error(
+                "Could not connect to qBittorrent ({0}); "
+                "falling back to copying torrents into torrent_dir.".format(e)
+            )
+
     seen: set[str]
 
     try:
@@ -529,7 +563,27 @@ def main():
                         logger.info("      Uploading to OPS...")
                         description = create_description(torrent, flac_dir, format)
                         api.upload(group, torrent, new_torrent, format, description)
-                    shutil.copy(new_torrent, local_torrent_dir)
+
+                    added_to_client = False
+                    if qbit_client is not None:
+                        try:
+                            qbit_client.add_torrent(
+                                new_torrent,
+                                savepath=os.path.dirname(transcode_dir),
+                                category=qbit_category or None,
+                                tags=qbit_tags or None,
+                                paused=qbit_paused,
+                            )
+                            logger.info("      Added to qBittorrent.")
+                            added_to_client = True
+                        except Exception as e:
+                            logger.error(
+                                "      Could not add to qBittorrent ({0}); "
+                                "copying to torrent_dir instead.".format(e)
+                            )
+
+                    if not added_to_client:
+                        shutil.copy(new_torrent, local_torrent_dir)
                     logger.info("      Success.")
                     if args.single:
                         break
